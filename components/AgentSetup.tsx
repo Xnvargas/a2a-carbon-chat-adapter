@@ -47,7 +47,7 @@ export default function AgentSetup({ onConnect, initialUrl = '', initialApiKey =
     }
   }, [onConnect])
 
-  const validateAgentUrl = useCallback(async (url: string): Promise<AgentCard | null> => {
+  const validateAgentUrl = useCallback(async (url: string): Promise<{ card: AgentCard | null; error?: string }> => {
     try {
       // Normalize URL
       let normalizedUrl = url.trim()
@@ -58,27 +58,36 @@ export default function AgentSetup({ onConnect, initialUrl = '', initialApiKey =
       normalizedUrl = normalizedUrl.replace(/\/$/, '')
 
       const cardUrl = `${normalizedUrl}/.well-known/agent-card.json`
+
       const response = await fetch(cardUrl, {
         method: 'GET',
         headers: {
           'Accept': 'application/json'
-        }
+        },
+        mode: 'cors'
       })
 
       if (!response.ok) {
-        return null
+        return { card: null, error: `Server returned ${response.status}: ${response.statusText}` }
       }
 
       const card = await response.json()
 
       // Validate required fields
       if (!card.name || !card.url) {
-        return null
+        return { card: null, error: 'Invalid agent card: missing name or url field' }
       }
 
-      return card
+      return { card }
     } catch (e) {
-      return null
+      const error = e as Error
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        return {
+          card: null,
+          error: 'Network error: The agent may not be running, or CORS is blocking the request. Ensure your agent server allows cross-origin requests from this domain.'
+        }
+      }
+      return { card: null, error: error.message || 'Unknown error occurred' }
     }
   }, [])
 
@@ -92,14 +101,14 @@ export default function AgentSetup({ onConnect, initialUrl = '', initialApiKey =
     setError(null)
     setValidatedCard(null)
 
-    const card = await validateAgentUrl(agentUrl)
+    const result = await validateAgentUrl(agentUrl)
 
     setIsValidating(false)
 
-    if (card) {
-      setValidatedCard(card)
+    if (result.card) {
+      setValidatedCard(result.card)
     } else {
-      setError('Could not connect to agent. Please check the URL and ensure the agent is running.')
+      setError(result.error || 'Could not connect to agent. Please check the URL and ensure the agent is running.')
     }
   }, [agentUrl, validateAgentUrl])
 
