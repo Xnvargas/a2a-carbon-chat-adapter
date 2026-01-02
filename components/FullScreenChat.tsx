@@ -151,10 +151,12 @@ export default function FullScreenChat({
               if (data.error) {
                 console.error('A2A error:', data.error)
                 await chatInstanceRef.current?.messaging.addMessage({
-                  response: [{
-                    response_type: 'text',
-                    text: `Error: ${data.error.message}`
-                  }]
+                  output: {
+                    generic: [{
+                      response_type: 'text',
+                      text: `Error: ${data.error.message}`
+                    }]
+                  }
                 })
                 continue
               }
@@ -196,21 +198,23 @@ export default function FullScreenChat({
                         part.text.toLowerCase().includes('not available')
 
                       try {
-                        // Carbon Chat expects message with response array
+                        // Carbon Chat expects watsonx-style format with output.generic
                         const messagePayload = {
-                          response: [{
-                            response_type: isErrorMessage ? 'user_defined' : 'text',
-                            ...(isErrorMessage
-                              ? {
-                                  user_defined: {
-                                    type: 'status_message',
-                                    messageType: 'warning',
-                                    text: part.text
+                          output: {
+                            generic: [{
+                              response_type: isErrorMessage ? 'user_defined' : 'text',
+                              ...(isErrorMessage
+                                ? {
+                                    user_defined: {
+                                      type: 'status_message',
+                                      messageType: 'warning',
+                                      text: part.text
+                                    }
                                   }
-                                }
-                              : { text: part.text }
-                            )
-                          }]
+                                : { text: part.text }
+                              )
+                            }]
+                          }
                         }
                         console.log('[DEBUG] Message payload:', messagePayload)
 
@@ -221,25 +225,29 @@ export default function FullScreenChat({
                       }
                     } else if (part.kind === 'file' && part.file) {
                       await chatInstanceRef.current?.messaging.addMessage({
-                        response: [{
-                          response_type: 'user_defined',
-                          user_defined: {
-                            type: 'file_attachment',
-                            fileName: part.file.name,
-                            mimeType: part.file.mimeType,
-                            downloadUrl: part.file.uri || `data:${part.file.mimeType};base64,${part.file.bytes}`
-                          }
-                        }]
+                        output: {
+                          generic: [{
+                            response_type: 'user_defined',
+                            user_defined: {
+                              type: 'file_attachment',
+                              fileName: part.file.name,
+                              mimeType: part.file.mimeType,
+                              downloadUrl: part.file.uri || `data:${part.file.mimeType};base64,${part.file.bytes}`
+                            }
+                          }]
+                        }
                       })
                     } else if (part.kind === 'data' && part.data) {
                       await chatInstanceRef.current?.messaging.addMessage({
-                        response: [{
-                          response_type: 'user_defined',
-                          user_defined: {
-                            type: 'structured_data',
-                            data: part.data
-                          }
-                        }]
+                        output: {
+                          generic: [{
+                            response_type: 'user_defined',
+                            user_defined: {
+                              type: 'structured_data',
+                              data: part.data
+                            }
+                          }]
+                        }
                       })
                     }
                   }
@@ -271,14 +279,16 @@ export default function FullScreenChat({
       setAgentStatus('failed')
       setIsThinking(false)
       await chatInstanceRef.current?.messaging.addMessage({
-        response: [{
-          response_type: 'user_defined',
-          user_defined: {
-            type: 'status_message',
-            messageType: 'error',
-            text: `Sorry, there was an error communicating with the agent: ${error instanceof Error ? error.message : 'Unknown error'}`
-          }
-        }]
+        output: {
+          generic: [{
+            response_type: 'user_defined',
+            user_defined: {
+              type: 'status_message',
+              messageType: 'error',
+              text: `Sorry, there was an error communicating with the agent: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }
+          }]
+        }
       })
     }
   }, [agentUrl, apiKey, extensions])
