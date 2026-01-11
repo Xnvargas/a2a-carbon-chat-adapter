@@ -158,8 +158,8 @@ export default function FullScreenChat({
   }, [onDisconnect])
 
   // =============================================================================
-  // APPLY STRINGS TO CHAT INSTANCE
-  // Carbon AI Chat may reset strings after messages - this ensures persistence
+  // APPLY STRINGS TO CHAT INSTANCE VIA REDUX
+  // Carbon AI Chat uses Redux for state - dispatch to languagePack with partialState key
   // =============================================================================
 
   const applyStringsToInstance = useCallback(() => {
@@ -167,20 +167,36 @@ export default function FullScreenChat({
     if (!instance) return
 
     try {
-      // Try different methods to apply strings depending on Carbon AI Chat version
-      if (typeof instance.updateStrings === 'function') {
-        instance.updateStrings(customStrings)
-      } else if (instance.strings !== undefined) {
-        // Merge custom strings with existing strings
-        instance.strings = { ...instance.strings, ...customStrings }
-      } else if (instance.config?.strings !== undefined) {
-        instance.config.strings = { ...instance.config.strings, ...customStrings }
+      // Get the Redux store from Carbon AI Chat's service manager
+      const store = instance.serviceManager?.store
+      if (!store?.dispatch || !store?.getState) {
+        console.warn('[Strings] Redux store not available on instance')
+        return
       }
 
-      // Force a re-render if the instance supports it
-      if (typeof instance.requestUpdate === 'function') {
-        instance.requestUpdate()
+      // Get current language pack from state
+      const state = store.getState()
+      const currentLanguagePack = state?.config?.derived?.languagePack || {}
+
+      // Merge custom strings with existing language pack
+      const merged = {
+        ...currentLanguagePack,
+        ...customStrings
       }
+
+      // Dispatch with partialState key (NOT state) - this is what Carbon's reducer expects
+      store.dispatch({
+        type: 'CHANGE_STATE',
+        partialState: {
+          config: {
+            derived: {
+              languagePack: merged
+            }
+          }
+        }
+      })
+
+      console.log('[Strings] Applied custom strings via Redux:', customStrings)
     } catch (err) {
       console.warn('[Strings] Failed to apply custom strings to instance:', err)
     }
