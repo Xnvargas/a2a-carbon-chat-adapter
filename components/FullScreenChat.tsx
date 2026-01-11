@@ -116,7 +116,10 @@ export default function FullScreenChat({
   showThinkingIndicator = true
 }: FullScreenChatProps) {
   const chatInstanceRef = useRef<any>(null)
-  
+
+  // Track when the chat instance is ready (set in onAfterRender)
+  const [instanceReady, setInstanceReady] = useState(false)
+
   // Streaming state
   const [isStreaming, setIsStreaming] = useState(false)
   const streamingStateRef = useRef<{
@@ -212,14 +215,52 @@ export default function FullScreenChat({
     }
   }, [customStrings])
 
-  // Re-apply strings when they change and instance is ready
+  // =============================================================================
+  // STORE SUBSCRIPTION TO PERSIST CUSTOM STRINGS
+  // Carbon AI Chat's applyConfigChangesDynamically() replaces the entire config,
+  // which resets languagePack to defaults. This subscription detects when our
+  // custom strings are overwritten and immediately re-applies them.
+  // =============================================================================
+
   useEffect(() => {
-    // Small delay to ensure the store is initialized
-    const timer = setTimeout(() => {
-      applyStringsToRedux()
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [applyStringsToRedux])
+    if (!instanceReady) return
+
+    const instance = chatInstanceRef.current
+    if (!instance?.serviceManager?.store) {
+      console.warn('[Strings] Store not available for subscription')
+      return
+    }
+
+    const store = instance.serviceManager.store
+
+    // Apply custom strings immediately when subscription starts
+    applyStringsToRedux()
+
+    // Subscribe to store changes to detect when strings are overwritten
+    const unsubscribe = store.subscribe(() => {
+      const state = store.getState()
+      const currentTitle = state?.config?.derived?.languagePack?.ai_slug_title
+
+      // If our custom title was overwritten, re-apply all custom strings
+      if (currentTitle !== customStrings.ai_slug_title) {
+        console.log('[Strings] Detected overwrite, re-applying custom strings')
+        const currentPack = state?.config?.derived?.languagePack || {}
+        store.dispatch({
+          type: 'CHANGE_STATE',
+          partialState: {
+            config: {
+              derived: {
+                languagePack: { ...currentPack, ...customStrings }
+              }
+            }
+          }
+        })
+      }
+    })
+
+    console.log('[Strings] Store subscription established')
+    return unsubscribe
+  }, [instanceReady, customStrings, applyStringsToRedux])
 
   // =============================================================================
   // STREAMING METHODS
@@ -661,11 +702,8 @@ export default function FullScreenChat({
         finalResponseSent: false
       }
 
-      // Re-apply custom strings after message processing
-      // Carbon AI Chat config updates reset the language pack - dispatch directly to Redux
-      setTimeout(() => {
-        applyStringsToRedux()
-      }, 100)
+      // Note: Custom strings are now maintained via store subscription
+      // which automatically re-applies them when config updates reset them
     }
   }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, applyStringsToRedux])
 
@@ -841,11 +879,8 @@ export default function FullScreenChat({
           console.log('[Init] serviceManager available:', !!instance?.serviceManager)
           console.log('[Init] store available:', !!instance?.serviceManager?.store)
 
-          // Apply custom strings directly to Redux after render
-          // Small delay to ensure store is fully initialized
-          setTimeout(() => {
-            applyStringsToRedux()
-          }, 50)
+          // Mark instance as ready - this triggers the store subscription
+          setInstanceReady(true)
         }}
         renderUserDefinedResponse={renderCustomResponse}
         messaging={{
