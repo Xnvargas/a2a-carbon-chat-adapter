@@ -172,38 +172,54 @@ export default function FullScreenChat({
   }, [onDisconnect])
 
   // =============================================================================
-  // APPLY STRINGS TO CHAT INSTANCE
-  // Carbon AI Chat may reset strings after messages - this ensures persistence
+  // APPLY STRINGS TO REDUX STORE
+  // Carbon AI Chat uses Redux internally - dispatching directly ensures strings
+  // persist through config updates that would otherwise reset the language pack.
+  // Requires exposeServiceManagerForTesting={true} on ChatCustomElement.
   // =============================================================================
 
-  const applyStringsToInstance = useCallback(() => {
+  const applyStringsToRedux = useCallback(() => {
     const instance = chatInstanceRef.current
-    if (!instance) return
+    if (!instance?.serviceManager?.store) {
+      console.warn('[Strings] serviceManager.store not available - ensure exposeServiceManagerForTesting={true}')
+      return
+    }
 
     try {
-      // Try different methods to apply strings depending on Carbon AI Chat version
-      if (typeof instance.updateStrings === 'function') {
-        instance.updateStrings(customStrings)
-      } else if (instance.strings !== undefined) {
-        // Merge custom strings with existing strings
-        instance.strings = { ...instance.strings, ...customStrings }
-      } else if (instance.config?.strings !== undefined) {
-        instance.config.strings = { ...instance.config.strings, ...customStrings }
-      }
+      // Get the current state to access the existing language pack
+      const currentState = instance.serviceManager.store.getState()
+      const currentLanguagePack = currentState?.config?.derived?.languagePack || {}
 
-      // Force a re-render if the instance supports it
-      if (typeof instance.requestUpdate === 'function') {
-        instance.requestUpdate()
-      }
+      // Merge custom strings over the current language pack
+      const merged = { ...currentLanguagePack, ...customStrings }
+
+      // Dispatch directly to Redux store using the CHANGE_STATE action
+      // This bypasses the config update mechanism that causes the reset
+      instance.serviceManager.store.dispatch({
+        type: 'CHANGE_STATE',
+        state: {
+          config: {
+            derived: {
+              languagePack: merged
+            }
+          }
+        }
+      })
+
+      console.log('[Strings] Applied custom strings to Redux store:', Object.keys(customStrings))
     } catch (err) {
-      console.warn('[Strings] Failed to apply custom strings to instance:', err)
+      console.error('[Strings] Failed to apply strings to Redux:', err)
     }
   }, [customStrings])
 
   // Re-apply strings when they change and instance is ready
   useEffect(() => {
-    applyStringsToInstance()
-  }, [applyStringsToInstance])
+    // Small delay to ensure the store is initialized
+    const timer = setTimeout(() => {
+      applyStringsToRedux()
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [applyStringsToRedux])
 
   // =============================================================================
   // STREAMING METHODS
@@ -646,12 +662,12 @@ export default function FullScreenChat({
       }
 
       // Re-apply custom strings after message processing
-      // Carbon AI Chat may reset strings after adding messages
+      // Carbon AI Chat config updates reset the language pack - dispatch directly to Redux
       setTimeout(() => {
-        applyStringsToInstance()
+        applyStringsToRedux()
       }, 100)
     }
-  }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, applyStringsToInstance])
+  }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, applyStringsToRedux])
 
   // =============================================================================
   // CUSTOM RESPONSE RENDERER
@@ -807,6 +823,7 @@ export default function FullScreenChat({
         debug={true}
         aiEnabled={true}
         openChatByDefault={true}
+        exposeServiceManagerForTesting={true}
         strings={customStrings}
         layout={{
           showFrame: false
@@ -821,9 +838,14 @@ export default function FullScreenChat({
           // Log available methods for debugging
           console.log('[Init] Chat instance ready')
           console.log('[Init] Available messaging methods:', Object.keys(instance?.messaging || {}))
+          console.log('[Init] serviceManager available:', !!instance?.serviceManager)
+          console.log('[Init] store available:', !!instance?.serviceManager?.store)
 
-          // Apply custom strings to the instance after render
-          applyStringsToInstance()
+          // Apply custom strings directly to Redux after render
+          // Small delay to ensure store is fully initialized
+          setTimeout(() => {
+            applyStringsToRedux()
+          }, 50)
         }}
         renderUserDefinedResponse={renderCustomResponse}
         messaging={{
