@@ -200,28 +200,6 @@ body {
   }
 }
 
-/* Disconnect button */
-.disconnect-button {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 1001;
-  padding: 0.5rem 1rem;
-  background: transparent;
-  color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.disconnect-button:hover {
-  background: rgba(218, 30, 40, 0.1);
-  border-color: var(--error);
-  color: var(--error);
-}
-
 /* Agent status indicator */
 .agent-status-indicator {
   position: fixed;
