@@ -82,6 +82,7 @@ export default function AgentChatApp({
       agentUrl={config.agentUrl}
       apiKey={config.apiKey}
       agentName={config.agentCard.name}
+      agentDescription={config.agentCard.description}
       onDisconnect={handleDisconnect}
       extensions={config.extensions}
       showThinkingIndicator={config.settings?.thinkingEnabled ?? true}

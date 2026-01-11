@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useState, useMemo } from 'react'
 
 const ChatCustomElement = dynamic(
   () => import('@carbon/ai-chat').then((mod) => mod.ChatCustomElement),
@@ -64,6 +64,7 @@ interface FullScreenChatProps {
   agentUrl: string
   apiKey?: string
   agentName?: string
+  agentDescription?: string
   onDisconnect?: () => void
   extensions?: A2AExtensionConfig
   showThinkingIndicator?: boolean
@@ -107,6 +108,7 @@ export default function FullScreenChat({
   agentUrl,
   apiKey = '',
   agentName = 'AI Assistant',
+  agentDescription,
   onDisconnect,
   extensions,
   showThinkingIndicator = true
@@ -128,6 +130,32 @@ export default function FullScreenChat({
     supportsChunking: null,
     finalResponseSent: false
   })
+
+  // =============================================================================
+  // CUSTOM STRINGS FOR AI EXPLAINED POPUP
+  // =============================================================================
+
+  const customStrings = useMemo(() => ({
+    ai_slug_title: `Powered by ${agentName}`,
+    ai_slug_description: agentDescription ||
+      `${agentName} uses AI to process conversations and provide assistance.`
+  }), [agentName, agentDescription])
+
+  // =============================================================================
+  // HEADER MENU OPTIONS WITH DISCONNECT
+  // =============================================================================
+
+  const headerMenuOptions = useMemo(() => {
+    if (!onDisconnect) return undefined
+    return [{
+      text: 'Disconnect',
+      handler: () => {
+        if (window.confirm('Disconnect from this agent?')) {
+          onDisconnect()
+        }
+      }
+    }]
+  }, [onDisconnect])
 
   // =============================================================================
   // STREAMING METHODS
@@ -711,15 +739,17 @@ export default function FullScreenChat({
         debug={true}
         aiEnabled={true}
         openChatByDefault={true}
+        strings={customStrings}
         layout={{
           showFrame: false
         }}
         header={{
-          title: agentName
+          title: agentName,
+          menuOptions: headerMenuOptions
         }}
         onAfterRender={(instance: any) => {
           chatInstanceRef.current = instance
-          
+
           // Log available methods for debugging
           console.log('[Init] Chat instance ready')
           console.log('[Init] Available messaging methods:', Object.keys(instance?.messaging || {}))
@@ -733,16 +763,6 @@ export default function FullScreenChat({
           }
         }}
       />
-      
-      {onDisconnect && (
-        <button
-          onClick={onDisconnect}
-          className="disconnect-button"
-          title="Disconnect from agent"
-        >
-          Disconnect
-        </button>
-      )}
     </div>
   )
 }
