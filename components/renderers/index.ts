@@ -3,6 +3,8 @@
  */
 
 export { CitationRenderer } from './CitationRenderer'
+export { ErrorRenderer } from './ErrorRenderer'
+export { FormRenderer } from './FormRenderer'
 export type {
   CitationRendererProps,
   TrajectoryRendererProps,

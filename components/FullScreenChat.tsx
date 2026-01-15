@@ -2,6 +2,18 @@
 
 import dynamic from 'next/dynamic'
 import { useRef, useCallback, useState, useMemo, useEffect } from 'react'
+import {
+  parseUIExtensions,
+  extractCitations,
+  extractTrajectory,
+  extractError,
+  extractFormRequest,
+  type Citation,
+  type TrajectoryMetadata,
+  type ErrorMetadata,
+  type FormRequestMetadata,
+} from '@/lib/a2a'
+import { CitationRenderer, ErrorRenderer, FormRenderer } from '@/components/renderers'
 
 const ChatCustomElement = dynamic(
   () => import('@carbon/ai-chat').then((mod) => mod.ChatCustomElement),
@@ -51,6 +63,7 @@ interface A2AMessage {
   role: string
   messageId: string
   parts: A2AMessagePart[]
+  metadata?: Record<string, unknown>
 }
 
 interface A2AStreamResult {
@@ -58,7 +71,7 @@ interface A2AStreamResult {
   taskId?: string
   kind: 'status-update' | 'artifact-update'
   status?: {
-    state: 'working' | 'completed' | 'failed' | 'canceled'
+    state: 'working' | 'completed' | 'failed' | 'canceled' | 'input-required' | 'auth-required'
     message?: A2AMessage
   }
   final?: boolean
@@ -156,6 +169,15 @@ export default function FullScreenChat({
   // A2A to Carbon message_options state
   const [reasoningSteps, setReasoningSteps] = useState<ReasoningStep[]>([])
   const [chainOfThought, setChainOfThought] = useState<ChainOfThoughtStep[]>([])
+
+  // UI Extension state for current message
+  const [currentCitations, setCurrentCitations] = useState<Citation[]>([])
+  const [currentError, setCurrentError] = useState<ErrorMetadata | null>(null)
+  const [currentFormRequest, setCurrentFormRequest] = useState<FormRequestMetadata | null>(null)
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null)
+
+  // Ref for tracking citations during streaming (to access from useCallback)
+  const streamCitationsRef = useRef<Citation[]>([])
   const streamingStateRef = useRef<{
     responseId: string | null
     accumulatedText: string
@@ -468,6 +490,42 @@ export default function FullScreenChat({
   }, [agentProfile])
 
   /**
+   * Send citations as a follow-up message with source list
+   */
+  const sendCitationsMessage = useCallback(async (citations: Citation[]) => {
+    if (citations.length === 0) return false
+
+    const instance = chatInstanceRef.current
+    if (!instance?.messaging?.addMessage) {
+      return false
+    }
+
+    try {
+      const message = {
+        output: {
+          generic: [{
+            response_type: MessageResponseTypes.USER_DEFINED,
+            user_defined: {
+              type: 'sources_list',
+              citations
+            }
+          }]
+        },
+        message_options: {
+          response_user_profile: agentProfile
+        }
+      }
+
+      await instance.messaging.addMessage(message)
+      console.log('[Citations] Sent sources list:', { count: citations.length })
+      return true
+    } catch (err) {
+      console.error('[Citations] Failed to send sources:', err)
+      return false
+    }
+  }, [agentProfile])
+
+  /**
    * Send a user-defined message (for files, structured data, etc.)
    */
   const sendUserDefinedMessage = useCallback(async (userDefined: Record<string, unknown>) => {
@@ -692,6 +750,13 @@ export default function FullScreenChat({
     setReasoningSteps([])
     setChainOfThought([])
 
+    // Reset UI extension state for new message
+    setCurrentCitations([])
+    setCurrentError(null)
+    setCurrentFormRequest(null)
+    setPendingTaskId(null)
+    streamCitationsRef.current = []
+
     console.log('[Handler] Starting message handling:', { 
       supportsChunking, 
       responseId,
@@ -805,11 +870,57 @@ export default function FullScreenChat({
                 if (result.kind === 'status-update' && result.status?.message) {
                   const agentMessage = result.status.message
 
+                  // Parse UI extensions from message-level metadata
+                  const uiExtensions = parseUIExtensions(agentMessage.metadata)
+
+                  // Extract citations from message metadata
+                  if (uiExtensions.citations?.citations?.length) {
+                    const newCitations = uiExtensions.citations.citations
+                    streamCitationsRef.current = [...streamCitationsRef.current, ...newCitations]
+                    setCurrentCitations(prev => [...prev, ...newCitations])
+                  }
+
+                  // Extract error from message metadata
+                  if (uiExtensions.error) {
+                    setCurrentError(uiExtensions.error)
+                    console.log('[Handler] Error extension:', uiExtensions.error)
+                  }
+
+                  // Extract form request from message metadata (for input-required state)
+                  if (uiExtensions.formRequest) {
+                    setCurrentFormRequest(uiExtensions.formRequest)
+                    setPendingTaskId(result.taskId || null)
+                    console.log('[Handler] Form request extension:', uiExtensions.formRequest)
+                  }
+
                   for (const part of agentMessage.parts) {
                     const contentType = part.metadata?.content_type
 
-                    // Handle thinking/reasoning content → Carbon reasoning.steps
-                    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+                    // Parse UI extensions from part-level metadata (trajectory often comes here)
+                    const partExtensions = parseUIExtensions(part.metadata as Record<string, unknown>)
+
+                    // Handle trajectory extension for reasoning/thinking
+                    if (partExtensions.trajectory) {
+                      const trajectory = partExtensions.trajectory
+                      const newStep: ReasoningStep = {
+                        title: trajectory.title || 'Reasoning',
+                        content: trajectory.content || '',
+                        open_state: 'default'
+                      }
+
+                      setReasoningSteps(prev => {
+                        const updatedSteps = [...prev, newStep]
+                        if (supportsChunking) {
+                          pushReasoningSteps(responseId, updatedSteps, itemId)
+                        }
+                        return updatedSteps
+                      })
+
+                      console.log('[Handler] Added trajectory step:', { title: trajectory.title, groupId: trajectory.group_id })
+                    }
+
+                    // Handle thinking/reasoning content → Carbon reasoning.steps (fallback for legacy agents)
+                    else if (contentType === 'thinking' && part.kind === 'text' && part.text) {
                       const newStep: ReasoningStep = {
                         title: 'Reasoning',
                         content: part.text,
@@ -917,9 +1028,21 @@ export default function FullScreenChat({
                   }
                 }
 
+                // Handle input-required state (form submission needed)
+                if (result.status?.state === 'input-required') {
+                  console.log('[Handler] Input required state detected')
+                  // Stop streaming and show form - the form renderer will handle submission
+                  const pendingText = streamingStateRef.current.accumulatedText
+                  if (pendingText && supportsChunking && streamingStateRef.current.hasStartedStreaming) {
+                    await sendFinalResponse(pendingText, responseId)
+                  }
+                  // Don't continue processing - wait for form submission
+                  continue
+                }
+
                 // Check if stream is complete (final: true OR state: completed)
                 const isComplete = result.final === true || result.status?.state === 'completed'
-                
+
                 if (isComplete) {
                   receivedFinalTrue = true
                   console.log('[Handler] ✅ Stream marked as complete:', { 
@@ -937,7 +1060,13 @@ export default function FullScreenChat({
                     await sendCompleteMessage(finalText)
                     streamingStateRef.current.finalResponseSent = true
                   }
-                  
+
+                  // Send citations as a follow-up message if we have any
+                  if (streamCitationsRef.current.length > 0) {
+                    console.log('[Handler] Sending citations:', { count: streamCitationsRef.current.length })
+                    await sendCitationsMessage(streamCitationsRef.current)
+                  }
+
                   console.log('[Handler] Final response processed, text length:', finalText.length)
                 }
               }
@@ -1067,7 +1196,39 @@ export default function FullScreenChat({
         finalResponseSent: false
       }
     }
-  }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, applyStringsToRedux, agentProfile, pushReasoningSteps, pushChainOfThought])
+  }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, sendCitationsMessage, applyStringsToRedux, agentProfile, pushReasoningSteps, pushChainOfThought])
+
+  /**
+   * Handle form submission for input-required state
+   * Sends form data as a message to resume the task
+   */
+  const handleFormSubmit = useCallback(async (values: Record<string, unknown>) => {
+    console.log('[Form] Submitting form values:', values)
+
+    // Clear the form request state
+    setCurrentFormRequest(null)
+    const taskId = pendingTaskId
+    setPendingTaskId(null)
+
+    // Format the form response as a message
+    const formResponseMessage = JSON.stringify({
+      type: 'form_response',
+      taskId,
+      values
+    })
+
+    // Send the form response through the normal message handler
+    await handleSendMessage(formResponseMessage)
+  }, [pendingTaskId, handleSendMessage])
+
+  /**
+   * Handle form cancellation
+   */
+  const handleFormCancel = useCallback(() => {
+    console.log('[Form] Form cancelled')
+    setCurrentFormRequest(null)
+    setPendingTaskId(null)
+  }, [])
 
   // =============================================================================
   // CUSTOM RESPONSE RENDERER
@@ -1078,6 +1239,50 @@ export default function FullScreenChat({
     const userDefined = messageItem?.user_defined
 
     if (!userDefined) return null
+
+    // Text with citations
+    if (userDefined.type === 'text_with_citations') {
+      return (
+        <CitationRenderer
+          text={userDefined.text}
+          citations={userDefined.citations || []}
+        />
+      )
+    }
+
+    // Sources list (citations without text)
+    if (userDefined.type === 'sources_list' && userDefined.citations) {
+      const citations = userDefined.citations as Citation[]
+      if (citations.length === 0) return null
+
+      // Deduplicate by URL
+      const uniqueCitations = citations.filter(
+        (c, i, arr) => c.url && arr.findIndex(x => x.url === c.url) === i
+      )
+
+      return (
+        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">Sources</h4>
+          <ol className="list-decimal list-inside space-y-1">
+            {uniqueCitations.map((citation, idx) => (
+              <li key={idx} className="text-sm">
+                <a
+                  href={citation.url || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {citation.title || citation.url || `Source ${idx + 1}`}
+                </a>
+                {citation.description && (
+                  <span className="text-gray-500 dark:text-gray-400 ml-2">— {citation.description}</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )
+    }
 
     // Image
     if (userDefined.type === 'image') {
@@ -1217,7 +1422,29 @@ export default function FullScreenChat({
           </div>
         </div>
       )}
-      
+
+      {/* Error renderer overlay */}
+      {currentError && (
+        <div className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <div className="max-w-2xl w-full">
+            <ErrorRenderer error={currentError} />
+          </div>
+        </div>
+      )}
+
+      {/* Form renderer overlay for input-required state */}
+      {currentFormRequest && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <FormRenderer
+              form={currentFormRequest}
+              onSubmit={handleFormSubmit}
+              onCancel={handleFormCancel}
+            />
+          </div>
+        </div>
+      )}
+
       <ChatCustomElement
         {...{
           className: 'chat-custom-element',
