@@ -16,11 +16,11 @@
 
 import dynamic from 'next/dynamic'
 import { useRef, useCallback } from 'react'
-import { A2AClient, StreamChunk, A2AMessagePart, extractCitations } from '@/lib/a2a'
+import { A2AClient, StreamChunk, A2AMessagePart, extractCitations, type Citation } from '@/lib/a2a'
 import {
   A2AToCarbonTranslator,
   CarbonMessage,
-  AGENTSTACK_EXTENSION_URIS,
+  ChainOfThoughtStepStatus
 } from '@/lib/translator/a2a-to-carbon'
 import { CitationRenderer } from './renderers'
 
@@ -36,16 +36,25 @@ interface EnhancedChatWrapperProps {
 
 // Extended A2A part with metadata support
 interface A2APartWithMetadata extends A2AMessagePart {
-  metadata?: Record<string, unknown>
+  metadata?: {
+    content_type?: 'thinking' | 'response' | 'status'
+    [key: string]: unknown
+  }
+}
+
+// Context for streaming parts including artifact metadata
+interface StreamingContext {
+  part: A2APartWithMetadata
+  artifactMetadata?: Record<string, unknown>
 }
 
 export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWrapperProps) {
   const chatInstanceRef = useRef<any>(null)
   const a2aClient = useRef(new A2AClient(agentUrl, { apiKey }))
   const translator = useRef(new A2AToCarbonTranslator())
-
+  
   // Track active tool calls to update their status when results come in
-  const activeToolCalls = useRef<Map<string, string>>(new Map())
+  const activeToolCalls = useRef<Map<string, string>>(new Map()) // toolName -> messageId
 
   /**
    * Add a Carbon message to the chat UI
@@ -75,6 +84,8 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
     }
 
     try {
+      // Try to update the message - this depends on Carbon AI Chat's API
+      // If direct update isn't available, we may need to use other methods
       await chatInstanceRef.current.messaging.updateMessage?.(messageId, carbonMessage)
     } catch (error) {
       console.error('Failed to update message:', error)
@@ -82,36 +93,36 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
   }, [])
 
   /**
-   * FIXED: Check if metadata contains AgentStack trajectory extension data
-   *
-   * Reference: AgentStack trajectory extension uses URI-keyed metadata
-   * https://github.com/i-am-bee/agentstack/blob/main/apps/agentstack-sdk-py/src/agentstack_sdk/a2a/extensions/ui/trajectory.py
+   * Process a streaming A2A part and translate it to Carbon format
+   * @param part The A2A part to process
+   * @param artifactMetadata Optional metadata from the artifact (for citations, trajectory, etc.)
    */
-  const hasTrajectoryMetadata = useCallback((metadata: Record<string, unknown> | undefined): boolean => {
-    if (!metadata) return false
-    return AGENTSTACK_EXTENSION_URIS.TRAJECTORY in metadata
-  }, [])
-
-  /**
-   * FIXED: Process a streaming A2A part with comprehensive metadata handling
-   *
-   * Now checks for:
-   * 1. AgentStack trajectory URI-keyed metadata (artifact.metadata or status.message.metadata)
-   * 2. Direct content_type metadata on parts
-   * 3. DataPart with type field (tool_call, tool_result)
-   * 4. Standard text/file parts
-   */
-  const processStreamingPart = useCallback(async (
-    part: A2APartWithMetadata,
-    artifactMetadata?: Record<string, unknown>
-  ) => {
-    // FIXED: Check for AgentStack trajectory metadata FIRST
-    // This handles the URI-keyed format from trajectory.trajectory_metadata()
-    if (hasTrajectoryMetadata(artifactMetadata)) {
-      console.log('Processing trajectory metadata:', artifactMetadata)
-      const carbonMessage = translator.current.translateStreamingPart(part, artifactMetadata)
+  const processStreamingPart = useCallback(async (part: A2APartWithMetadata, artifactMetadata?: Record<string, unknown>) => {
+    // Check for metadata-based content types (thinking, response, status)
+    if (part.metadata?.content_type) {
+      const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
       if (carbonMessage) {
         await addCarbonMessage(carbonMessage)
+      }
+      return
+    }
+
+    // Check for data-based types (tool_call, tool_result)
+    if (part.kind === 'data' && part.data) {
+      const dataType = (part.data as any).type
+
+      if (dataType === 'tool_call') {
+        const toolName = (part.data as any).tool_name || 'tool'
+        const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
+
+        if (carbonMessage) {
+          const result = await addCarbonMessage(carbonMessage)
+          // Track this tool call so we can update it when the result comes
+          if (result?.id) {
+            activeToolCalls.current.set(toolName, result.id)
+          }
+        }
+        return
       }
       return
     }
@@ -125,32 +136,12 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
       return
     }
 
-    // FIXED: Check for DataPart with type field (tool_call, tool_result)
-    // Reference: A2A DataPart format for tool events
-    if (part.kind === 'data' && part.data) {
-      const dataType = (part.data as any).type
-
-      if (dataType === 'tool_call') {
-        console.log('Processing tool_call DataPart:', part.data)
-        const toolName = (part.data as any).tool_name || 'tool'
-        const carbonMessage = translator.current.translateStreamingPart(part, artifactMetadata)
-
-        if (carbonMessage) {
-          const result = await addCarbonMessage(carbonMessage)
-          // Track this tool call so we can update it when the result comes
-          if (result?.id) {
-            activeToolCalls.current.set(toolName, result.id)
-          }
-        }
-        return
-      }
-
       if (dataType === 'tool_result') {
-        console.log('Processing tool_result DataPart:', part.data)
         const toolName = (part.data as any).tool_name || 'tool'
-        const carbonMessage = translator.current.translateStreamingPart(part, artifactMetadata)
+        const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
 
         if (carbonMessage) {
+          // Check if we have an active tool call to update
           const existingMessageId = activeToolCalls.current.get(toolName)
 
           if (existingMessageId) {
@@ -168,18 +159,15 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
 
     // Handle standard text parts
     if (part.kind === 'text' && part.text) {
-      const carbonMessage = translator.current.translateStreamingPart(part, artifactMetadata)
+      const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
       if (carbonMessage) {
         await addCarbonMessage(carbonMessage)
       }
     }
-  }, [addCarbonMessage, updateCarbonMessage, hasTrajectoryMetadata])
+  }, [addCarbonMessage, updateCarbonMessage])
 
   /**
-   * FIXED: Handle incoming stream chunks with comprehensive metadata extraction
-   *
-   * Reference: A2A streaming format
-   * https://github.com/a2aproject/a2a-python
+   * Handle incoming stream chunks from the A2A agent
    */
   const handleStreamChunk = useCallback(async (chunk: StreamChunk) => {
     console.log('Received stream chunk:', chunk.kind)
@@ -188,22 +176,10 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
       const state = chunk.status?.state
       console.log('Agent status:', state)
 
-      // FIXED: Extract metadata from status message
+      // Handle status message if present
       if (chunk.status?.message?.parts) {
-        // Get message metadata (contains extension data like trajectory)
-        const messageMetadata = (chunk.status.message as any).metadata
-
-        // FIXED: If message has trajectory metadata, process it even without parts
-        if (hasTrajectoryMetadata(messageMetadata)) {
-          // Create a synthetic part to carry the trajectory through the translator
-          const syntheticPart: A2APartWithMetadata = {
-            kind: 'text',
-            text: '',
-            metadata: messageMetadata
-          }
-          await processStreamingPart(syntheticPart, messageMetadata)
-        }
-
+        // Get message metadata (may contain extension data)
+        const messageMetadata = chunk.status.message.metadata
         for (const part of chunk.status.message.parts) {
           await processStreamingPart(part as A2APartWithMetadata, messageMetadata)
         }
@@ -214,27 +190,14 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
       const artifact = chunk.artifact
 
       if (artifact?.parts) {
-        // FIXED: Get artifact metadata (contains extension data like trajectory, citations)
-        const artifactMetadata = artifact.metadata as Record<string, unknown>
-
-        console.log('Artifact metadata:', artifactMetadata)
-
-        // FIXED: If artifact has trajectory metadata but empty parts, still process it
-        if (hasTrajectoryMetadata(artifactMetadata) && artifact.parts.length === 0) {
-          const syntheticPart: A2APartWithMetadata = {
-            kind: 'text',
-            text: '',
-            metadata: artifactMetadata
-          }
-          await processStreamingPart(syntheticPart, artifactMetadata)
-        }
-
+        // Get artifact metadata (may contain citations, trajectory, etc.)
+        const artifactMetadata = artifact.metadata
         for (const part of artifact.parts) {
           await processStreamingPart(part as A2APartWithMetadata, artifactMetadata)
         }
       }
     }
-  }, [processStreamingPart, hasTrajectoryMetadata])
+  }, [processStreamingPart])
 
   /**
    * Send a message to the A2A agent
@@ -252,12 +215,14 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
         handleStreamChunk,
         () => {
           console.log('Stream completed')
+          // Clear tool call tracking on completion
           activeToolCalls.current.clear()
         }
       )
     } catch (error) {
       console.error('Error sending message:', error)
-
+      
+      // Show error in chat
       await addCarbonMessage({
         response_type: 'text',
         text: `Error: ${error instanceof Error ? error.message : 'Failed to communicate with agent'}`
@@ -267,16 +232,13 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
 
   /**
    * Render custom/user-defined responses
-   *
-   * Reference: Carbon AI Chat custom rendering
-   * https://github.com/carbon-design-system/carbon-ai-chat
    */
   const renderCustomResponse = useCallback((state: any) => {
     const messageItem = state.messageItem
     const userDefined = messageItem?.user_defined
     const metadata = messageItem?.metadata
 
-    // Check for citation metadata first
+    // Check for citation metadata first - render with CitationRenderer
     const citations = extractCitations(metadata)
     if (citations.length > 0 && messageItem?.text) {
       return (
