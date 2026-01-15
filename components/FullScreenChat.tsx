@@ -1219,11 +1219,13 @@ export default function FullScreenChat({
       )}
       
       <ChatCustomElement
-        className="chat-custom-element"
-        debug={true}
-        aiEnabled={true}
-        openChatByDefault={true}
-        exposeServiceManagerForTesting={true}
+        {...{
+          className: 'chat-custom-element',
+          debug: true,
+          aiEnabled: true,
+          openChatByDefault: true,
+          exposeServiceManagerForTesting: true
+        } as any}
         strings={customStrings}
         layout={{
           showFrame: false
@@ -1276,8 +1278,7 @@ export default function FullScreenChat({
               await handleSendMessage(request.input.text)
             }
           },
-          onStopStreaming: handleCancelRequest
-        }}
+        } as any}
       />
     </div>
   )
