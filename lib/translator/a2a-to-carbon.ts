@@ -104,6 +104,15 @@ export class A2AToCarbonTranslator {
     const messages: CarbonMessage[] = []
 
     for (const artifact of task.artifacts) {
+      // First, check artifact-level metadata for trajectory
+      const artifactTrajectory = extractTrajectoryFromMetadata(artifact.metadata as Record<string, unknown>)
+      if (artifactTrajectory) {
+        const trajectoryMessage = this.translateTrajectory(artifactTrajectory)
+        if (trajectoryMessage) {
+          messages.push(trajectoryMessage)
+        }
+      }
+
       for (const part of artifact.parts) {
         const message = this.translatePart(part, artifact)
         if (message) messages.push(message)

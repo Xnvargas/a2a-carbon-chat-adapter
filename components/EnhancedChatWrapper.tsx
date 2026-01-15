@@ -1,5 +1,19 @@
 'use client'
 
+/**
+ * EnhancedChatWrapper.tsx (FIXED VERSION)
+ *
+ * FIXES APPLIED:
+ * 1. Added trajectory URI parsing from artifact/status metadata
+ * 2. Added proper handling for DataPart tool_call/tool_result
+ * 3. Improved chunk processing to check all metadata sources
+ *
+ * DOCUMENTATION REFERENCES:
+ * - AgentStack trajectory extension: https://github.com/i-am-bee/agentstack/blob/main/apps/agentstack-sdk-py/src/agentstack_sdk/a2a/extensions/ui/trajectory.py
+ * - Carbon AI Chat chain_of_thought: https://github.com/carbon-design-system/carbon-ai-chat/blob/main/examples/react/reasoning-and-chain-of-thought/src/scenarios.ts
+ * - A2A Protocol streaming: https://github.com/a2aproject/a2a-python
+ */
+
 import dynamic from 'next/dynamic'
 import { useRef, useCallback } from 'react'
 import { A2AClient, StreamChunk, A2AMessagePart, extractCitations, type Citation } from '@/lib/a2a'
@@ -110,6 +124,17 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
         }
         return
       }
+      return
+    }
+
+    // Check for content_type in part metadata
+    if (part.metadata?.content_type) {
+      const carbonMessage = translator.current.translateStreamingPart(part, artifactMetadata)
+      if (carbonMessage) {
+        await addCarbonMessage(carbonMessage)
+      }
+      return
+    }
 
       if (dataType === 'tool_result') {
         const toolName = (part.data as any).tool_name || 'tool'
@@ -239,10 +264,10 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
     if (userDefined.type === 'image') {
       return (
         <div>
-          <img 
-            src={userDefined.url} 
-            alt={userDefined.alt || 'Image'} 
-            className="max-w-full rounded-lg" 
+          <img
+            src={userDefined.url}
+            alt={userDefined.alt || 'Image'}
+            className="max-w-full rounded-lg"
           />
           {userDefined.caption && (
             <p className="text-sm text-gray-600 mt-2">{userDefined.caption}</p>
@@ -269,9 +294,9 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
     // Handle file attachments
     if (userDefined.type === 'file_attachment') {
       return (
-        <a 
-          href={userDefined.downloadUrl} 
-          download={userDefined.fileName} 
+        <a
+          href={userDefined.downloadUrl}
+          download={userDefined.fileName}
           className="flex items-center gap-3 p-4 border rounded-lg hover:bg-gray-50 transition"
         >
           <div className="text-2xl">📎</div>
