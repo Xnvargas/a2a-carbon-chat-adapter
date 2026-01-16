@@ -401,11 +401,18 @@ export default function FullScreenChat({
   }, [agentProfile])
 
   /**
-   * Send the complete item chunk (optional but good for accessibility)
+   * Send complete_item to finalize a streaming text item
+   * IMPORTANT: Call this BEFORE final_response for smooth transitions
    */
-  const sendCompleteItem = useCallback((fullText: string, responseId: string, itemId: string = '1', wasStopped: boolean = false) => {
+  const sendCompleteTextItem = useCallback(async (
+    fullText: string,
+    responseId: string,
+    itemId: string = '1',
+    wasStopped: boolean = false
+  ): Promise<boolean> => {
     const instance = chatInstanceRef.current
     if (!instance?.messaging?.addMessageChunk) {
+      console.warn('[Streaming] Cannot send complete_item - addMessageChunk not available')
       return false
     }
 
@@ -423,15 +430,61 @@ export default function FullScreenChat({
           response_id: responseId
         }
       }
-      
-      console.log('[Streaming] Sending complete item:', { textLength: fullText.length, responseId, wasStopped })
-      instance.messaging.addMessageChunk(chunk)
+
+      console.log('[Streaming] Sending complete_item:', { textLength: fullText.length, itemId, wasStopped })
+      await instance.messaging.addMessageChunk(chunk)
       return true
     } catch (err) {
-      console.error('[Streaming] Failed to send complete item:', err)
+      console.error('[Streaming] Failed to send complete_item:', err)
       return false
     }
   }, [])
+
+  /**
+   * Send citations as a partial_item during streaming
+   * This allows the UI to render sources incrementally rather than all at once
+   */
+  const sendCitationsPartialItem = useCallback(async (
+    citations: Citation[],
+    responseId: string
+  ): Promise<boolean> => {
+    if (citations.length === 0) return true
+
+    const instance = chatInstanceRef.current
+    if (!instance?.messaging?.addMessageChunk) {
+      return false
+    }
+
+    try {
+      const chunk = {
+        partial_item: {
+          response_type: MessageResponseTypes.USER_DEFINED,
+          user_defined: {
+            type: 'sources_list',
+            citations: citations
+          },
+          streaming_metadata: {
+            id: 'citations'  // Fixed ID so updates merge correctly
+          }
+        },
+        partial_response: {
+          message_options: {
+            response_user_profile: agentProfile
+          }
+        },
+        streaming_metadata: {
+          response_id: responseId
+        }
+      }
+
+      console.log('[Streaming] Sending citations partial_item:', { count: citations.length })
+      await instance.messaging.addMessageChunk(chunk)
+      return true
+    } catch (err) {
+      console.error('[Streaming] Failed to send citations partial_item:', err)
+      return false
+    }
+  }, [agentProfile])
 
   /**
    * Send the final response chunk (REQUIRED to clear typing indicator)
@@ -747,20 +800,49 @@ export default function FullScreenChat({
       currentTaskIdRef.current = null
     }
 
-    // 3. Force clear typing indicator while preserving chain of thought
+    // 3. Force clear typing indicator with proper 3-step process
     const state = streamingStateRef.current
     const instance = chatInstanceRef.current
     if (state.responseId && !state.finalResponseSent) {
       if (instance?.messaging?.addMessageChunk && state.supportsChunking) {
         try {
-          // Build generic items including citations if available
+          const cancelledText = state.accumulatedText || '(Request cancelled)'
+
+          // Step 1: Citations (if any accumulated)
+          if (streamCitationsRef.current.length > 0) {
+            await instance.messaging.addMessageChunk({
+              partial_item: {
+                response_type: MessageResponseTypes.USER_DEFINED,
+                user_defined: {
+                  type: 'sources_list',
+                  citations: streamCitationsRef.current
+                },
+                streaming_metadata: { id: 'citations' }
+              },
+              streaming_metadata: { response_id: state.responseId }
+            })
+          }
+
+          // Step 2: Complete item with stream_stopped flag
+          await instance.messaging.addMessageChunk({
+            complete_item: {
+              response_type: MessageResponseTypes.TEXT,
+              text: cancelledText,
+              streaming_metadata: {
+                id: '1',
+                stream_stopped: true  // Indicates user cancelled
+              }
+            },
+            streaming_metadata: { response_id: state.responseId }
+          })
+
+          // Step 3: Final response
           const genericItems: any[] = [{
             response_type: MessageResponseTypes.TEXT,
-            text: state.accumulatedText || '(Request cancelled)',
+            text: cancelledText,
             streaming_metadata: { id: '1' }
           }]
 
-          // Include citations if we have any
           if (streamCitationsRef.current.length > 0) {
             genericItems.push({
               response_type: MessageResponseTypes.USER_DEFINED,
@@ -772,15 +854,12 @@ export default function FullScreenChat({
             })
           }
 
-          const finalResponse = {
+          await instance.messaging.addMessageChunk({
             final_response: {
               id: state.responseId,
-              output: {
-                generic: genericItems
-              },
+              output: { generic: genericItems },
               message_options: {
                 response_user_profile: agentProfile,
-                // Preserve chain of thought and reasoning from refs
                 chain_of_thought: chainOfThoughtRef.current.length > 0
                   ? chainOfThoughtRef.current
                   : undefined,
@@ -789,15 +868,15 @@ export default function FullScreenChat({
                   : undefined
               }
             }
-          }
-          await instance.messaging.addMessageChunk(finalResponse)
-          console.log('[Cancel] Sent final_response to clear typing indicator with preserved state:', {
+          })
+
+          console.log('[Cancel] Completed 3-step finalization with preserved state:', {
             chainOfThought: chainOfThoughtRef.current.length,
             reasoningSteps: reasoningStepsRef.current.length,
             citations: streamCitationsRef.current.length
           })
         } catch (e) {
-          console.error('[Cancel] Failed to clear typing indicator:', e)
+          console.error('[Cancel] Failed to complete finalization:', e)
         }
       }
     }
@@ -990,6 +1069,11 @@ export default function FullScreenChat({
                     const newCitations = uiExtensions.citations.citations
                     streamCitationsRef.current = [...streamCitationsRef.current, ...newCitations]
                     setCurrentCitations(prev => [...prev, ...newCitations])
+
+                    // Stream citations immediately as they arrive for smoother UX
+                    if (supportsChunking && streamingStateRef.current.hasStartedStreaming) {
+                      await sendCitationsPartialItem(streamCitationsRef.current, responseId)
+                    }
                   }
 
                   // Extract error from message metadata
@@ -1195,12 +1279,26 @@ export default function FullScreenChat({
                   const finalText = streamingStateRef.current.accumulatedText
 
                   if (supportsChunking && streamingStateRef.current.hasStartedStreaming) {
-                    // STREAMING MODE: Send final_response with citations inline and preserved chain of thought
+                    // STREAMING MODE: Proper 3-step finalization
+
+                    // Step 1: Send citations as partial_item (if not already sent during stream)
+                    if (streamCitationsRef.current.length > 0) {
+                      console.log('[Handler] Step 1: Sending citations partial_item')
+                      await sendCitationsPartialItem(streamCitationsRef.current, responseId)
+                    }
+
+                    // Step 2: Send complete_item to finalize the text
+                    console.log('[Handler] Step 2: Sending complete_item')
+                    await sendCompleteTextItem(finalText, responseId, '1', false)
+
+                    // Step 3: Send final_response to clear typing indicator and persist state
+                    console.log('[Handler] Step 3: Sending final_response')
                     await sendFinalResponse(finalText, responseId, {
                       citations: streamCitationsRef.current,
                       chainOfThought: chainOfThought,
                       reasoningSteps: reasoningSteps
                     })
+
                   } else if (finalText && !streamingStateRef.current.finalResponseSent) {
                     // FALLBACK MODE: Send accumulated text as single message
                     await sendCompleteMessage(finalText)
@@ -1259,8 +1357,17 @@ export default function FullScreenChat({
 
         if (state.accumulatedText) {
           if (supportsChunking && state.hasStartedStreaming) {
-            // Streaming mode: must send final_response to clear typing indicator
-            console.log('[Handler] Sending fallback final_response for streaming mode')
+            console.log('[Handler] Fallback: executing 3-step finalization')
+
+            // Step 1: Citations (if any)
+            if (streamCitationsRef.current.length > 0) {
+              await sendCitationsPartialItem(streamCitationsRef.current, responseId)
+            }
+
+            // Step 2: Complete item
+            await sendCompleteTextItem(state.accumulatedText, responseId, '1', false)
+
+            // Step 3: Final response
             await sendFinalResponse(state.accumulatedText, responseId, {
               citations: streamCitationsRef.current,
               chainOfThought: chainOfThought,
@@ -1313,14 +1420,40 @@ export default function FullScreenChat({
         const instance = chatInstanceRef.current
         if (instance?.messaging?.addMessageChunk && finalState.supportsChunking) {
           try {
-            // Build generic items including citations
+            // Complete the 3-step process even in the finally block
+
+            // Step 1: Citations (if any)
+            if (streamCitationsRef.current.length > 0) {
+              await instance.messaging.addMessageChunk({
+                partial_item: {
+                  response_type: MessageResponseTypes.USER_DEFINED,
+                  user_defined: {
+                    type: 'sources_list',
+                    citations: streamCitationsRef.current
+                  },
+                  streaming_metadata: { id: 'citations' }
+                },
+                streaming_metadata: { response_id: finalState.responseId }
+              })
+            }
+
+            // Step 2: Complete item
+            await instance.messaging.addMessageChunk({
+              complete_item: {
+                response_type: MessageResponseTypes.TEXT,
+                text: finalState.accumulatedText || '',
+                streaming_metadata: { id: '1' }
+              },
+              streaming_metadata: { response_id: finalState.responseId }
+            })
+
+            // Step 3: Final response
             const genericItems: any[] = [{
               response_type: MessageResponseTypes.TEXT,
               text: finalState.accumulatedText || '',
               streaming_metadata: { id: '1' }
             }]
 
-            // Include citations if we have any
             if (streamCitationsRef.current.length > 0) {
               genericItems.push({
                 response_type: MessageResponseTypes.USER_DEFINED,
@@ -1332,24 +1465,21 @@ export default function FullScreenChat({
               })
             }
 
-            const finalResponse = {
+            await instance.messaging.addMessageChunk({
               final_response: {
                 id: finalState.responseId,
-                output: {
-                  generic: genericItems
-                },
+                output: { generic: genericItems },
                 message_options: {
                   response_user_profile: agentProfile,
-                  // Preserve chain of thought and reasoning
                   chain_of_thought: chainOfThought.length > 0 ? chainOfThought : undefined,
                   reasoning: reasoningSteps.length > 0 ? { steps: reasoningSteps } : undefined
                 }
               }
-            }
-            await instance.messaging.addMessageChunk(finalResponse)
-            console.log('[Handler] Finally block: sent final_response successfully')
+            })
+
+            console.log('[Handler] Finally block: completed 3-step finalization')
           } catch (e) {
-            console.error('[Handler] Finally block: failed to send final response:', e)
+            console.error('[Handler] Finally block: failed to complete finalization:', e)
           }
         } else if (!finalState.supportsChunking && finalState.accumulatedText) {
           try {
@@ -1372,7 +1502,7 @@ export default function FullScreenChat({
         finalResponseSent: false
       }
     }
-  }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, sendCitationsMessage, applyStringsToRedux, agentProfile, pushReasoningSteps, pushChainOfThought])
+  }, [agentUrl, apiKey, extensions, sendPartialChunk, sendCompleteTextItem, sendFinalResponse, sendCompleteMessage, sendUserDefinedMessage, sendCitationsMessage, sendCitationsPartialItem, applyStringsToRedux, agentProfile, pushReasoningSteps, pushChainOfThought])
 
   /**
    * Handle form submission for input-required state
