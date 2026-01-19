@@ -1306,13 +1306,15 @@ export default function FullScreenChat({
                   for (const part of agentMessage.parts) {
                     const contentType = part.metadata?.content_type
 
-                    // Log part processing for debugging
+                    // Log part processing for debugging - include full metadata
                     console.log('[Handler] Processing part:', {
                       kind: part.kind,
                       contentType,
                       hasText: !!part.text,
+                      textPreview: part.text?.substring(0, 100),
                       hasData: !!part.data,
-                      dataType: part.data?.type
+                      dataType: part.data?.type,
+                      fullMetadata: part.metadata
                     })
 
                     // Parse UI extensions from part-level metadata (trajectory often comes here)
@@ -1356,8 +1358,28 @@ export default function FullScreenChat({
                     // THINKING CONTENT → Route to reasoning accordion
                     // FIXED: Async calls OUTSIDE setState, following Carbon's pattern
                     // Reference: scenarios.ts runReasoningStepsScenario
+                    // Support multiple ways agents signal thinking content:
+                    // - content_type: 'thinking'
+                    // - type: 'thinking' (alternative metadata field)
+                    // - role: 'thinking' or 'reasoning'
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+                    const isThinkingContent = (
+                      contentType === 'thinking' ||
+                      part.metadata?.type === 'thinking' ||
+                      part.metadata?.role === 'thinking' ||
+                      part.metadata?.role === 'reasoning'
+                    )
+
+                    if (isThinkingContent) {
+                      console.log('[Handler] 🧠 Detected THINKING content:', {
+                        contentType,
+                        metadataType: part.metadata?.type,
+                        metadataRole: part.metadata?.role,
+                        textLength: part.text?.length
+                      })
+                    }
+
+                    if (isThinkingContent && part.kind === 'text' && part.text) {
                       // Extract step number and title from metadata
                       const stepNumber = part.metadata?.step as number | undefined
                       const stepTitle = part.metadata?.title as string | undefined
