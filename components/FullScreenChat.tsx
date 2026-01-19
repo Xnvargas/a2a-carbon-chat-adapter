@@ -766,12 +766,15 @@ export default function FullScreenChat({
     }
 
     try {
+      // Match Carbon's pushMessageOptions chunk structure exactly
+      // Reference: scenarios.ts pushMessageOptions function
       const chunk = {
         partial_item: {
           response_type: MessageResponseTypes.TEXT,
           text: '',  // Don't show thinking as main text
           streaming_metadata: {
-            id: itemId
+            id: itemId,
+            cancellable: true  // Match Carbon's example
           }
         },
         partial_response: {
@@ -790,6 +793,7 @@ export default function FullScreenChat({
       console.log('[Reasoning] Pushing to Carbon:', {
         stepCount: steps.length,
         latestTitle: steps[steps.length - 1]?.title,
+        latestContent: steps[steps.length - 1]?.content?.substring(0, 100),
         responseId
       })
       await instance.messaging.addMessageChunk(chunk)
