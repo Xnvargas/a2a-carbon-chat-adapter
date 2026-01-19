@@ -778,7 +778,8 @@ export default function FullScreenChat({
           message_options: {
             response_user_profile: agentProfile,
             reasoning: {
-              steps
+              steps,
+              open_state: 'default'  // Auto-expand during streaming
             }
           }
         },

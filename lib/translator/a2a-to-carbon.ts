@@ -612,6 +612,7 @@ export class A2AToCarbonTranslator {
           response_user_profile: this.agentProfile,
           reasoning: {
             steps: this.state.reasoningSteps,
+            open_state: ReasoningStepOpenState.DEFAULT,  // Auto-expand during streaming
           },
         },
       },
@@ -649,6 +650,7 @@ export class A2AToCarbonTranslator {
           response_user_profile: this.agentProfile,
           reasoning: {
             steps: this.state.reasoningSteps,
+            open_state: ReasoningStepOpenState.DEFAULT,  // Auto-expand during streaming
           },
         },
       },
