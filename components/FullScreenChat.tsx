@@ -1136,8 +1136,8 @@ export default function FullScreenChat({
             partial_response: {
               message_options: {
                 response_user_profile: agentProfile,
-                reasoning: { content: '' },    // Initialize empty reasoning content for token streaming
-                chain_of_thought: []           // Initialize empty chain of thought
+                reasoning: { content: '' }    // Initialize empty reasoning content for token streaming
+                // chain_of_thought intentionally omitted - will be added on first tool call
               }
             },
             streaming_metadata: { response_id: responseId }
@@ -1354,13 +1354,12 @@ export default function FullScreenChat({
                     }
 
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    // THINKING/REASONING CONTENT → Route to reasoning accordion using content mode
+                    // THINKING CONTENT → Route to reasoning accordion using content mode
                     // Uses reasoning.content for continuous token streaming instead of steps[]
                     // Reference: Carbon AI Chat streamReasoningContentFirst() pattern
-                    // Handles both 'thinking' (pre-response) and 'reasoning_step' (post-tool reasoning)
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    if ((contentType === 'thinking' || contentType === 'reasoning_step') && part.kind === 'text' && part.text) {
-                      // Accumulate thinking tokens into a single string
+                    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+                      // Phase 1: Stream to reasoning.content (existing behavior)
                       accumulatedThinkingRef.current += part.text
 
                       // Push accumulated content to Carbon for live streaming display
@@ -1368,24 +1367,16 @@ export default function FullScreenChat({
                         const instance = chatInstanceRef.current
                         if (instance?.messaging?.addMessageChunk) {
                           await instance.messaging.addMessageChunk({
-                            partial_item: {
-                              response_type: MessageResponseTypes.TEXT,
-                              text: '',  // Main text stays empty during thinking
-                              streaming_metadata: { id: itemId, cancellable: true }
-                            },
                             partial_response: {
                               message_options: {
-                                response_user_profile: agentProfile,
                                 reasoning: { content: accumulatedThinkingRef.current }
                               }
-                            },
-                            streaming_metadata: { response_id: responseId }
+                            }
                           })
                         }
                       }
 
-                      console.log('[Handler] Streamed reasoning token:', {
-                        contentType,
+                      console.log('[Handler] Streamed thinking token:', {
                         tokenLength: part.text.length,
                         totalThinking: accumulatedThinkingRef.current.length
                       })
@@ -1395,9 +1386,41 @@ export default function FullScreenChat({
                     }
 
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    // TOOL CALL → Track in chain_of_thought (but don't show yet)
-                    // FIXED: Don't push to Carbon until tool completes - avoids showing
-                    // "How did I get this answer?" accordion too early
+                    // REASONING STEP → Route to both reasoning.content and chain_of_thought
+                    // For live streaming, push to reasoning.content
+                    // The batched version will come as a separate emit_reasoning_step from backend
+                    // which should be added to a "reasoning trace" section in chain_of_thought
+                    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    if (contentType === 'reasoning_step' && part.kind === 'text' && part.text) {
+                      // For live streaming, also push to reasoning.content
+                      accumulatedThinkingRef.current += part.text
+
+                      if (supportsChunking) {
+                        const instance = chatInstanceRef.current
+                        if (instance?.messaging?.addMessageChunk) {
+                          await instance.messaging.addMessageChunk({
+                            partial_response: {
+                              message_options: {
+                                reasoning: { content: accumulatedThinkingRef.current }
+                              }
+                            }
+                          })
+                        }
+                      }
+
+                      console.log('[Handler] Streamed reasoning_step token:', {
+                        tokenLength: part.text.length,
+                        totalThinking: accumulatedThinkingRef.current.length
+                      })
+
+                      // The batched version will come as a separate emit_reasoning_step from backend
+                      // which should be added to a "reasoning trace" section in chain_of_thought
+                      continue
+                    }
+
+                    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    // TOOL CALL → Track in chain_of_thought and show immediately with spinner
+                    // Push to Carbon right away so user sees the accordion with IN_PROGRESS status
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     else if (part.kind === 'data' && part.data?.type === 'tool_call') {
                       const toolData = part.data as { tool_name?: string; args?: any; type: string }
@@ -1406,7 +1429,7 @@ export default function FullScreenChat({
                         description: `Calling ${toolData.tool_name || 'tool'}`,
                         tool_name: toolData.tool_name,
                         request: { args: toolData.args },
-                        status: ChainOfThoughtStepStatus.IN_PROGRESS
+                        status: ChainOfThoughtStepStatus.IN_PROGRESS  // Show spinner
                       }
 
                       // Step 1: Synchronous array mutation
@@ -1418,10 +1441,12 @@ export default function FullScreenChat({
                       // Step 3: Update React state - PURE, no side effects!
                       setChainOfThought([...chainOfThought])
 
-                      // NOTE: Don't push to Carbon yet - wait until tool_result to show accordion
-                      // This prevents "How did I get this answer?" from appearing at the very start
+                      // Step 4: Push immediately to show the accordion with spinner
+                      if (supportsChunking) {
+                        await pushChainOfThought(responseId, chainOfThought, itemId)
+                      }
 
-                      console.log('[Handler] Tracked tool call (not yet displayed):', {
+                      console.log('[Handler] Tool call started, showing in chain of thought:', {
                         toolName: toolData.tool_name,
                         totalSteps: chainOfThought.length
                       })
