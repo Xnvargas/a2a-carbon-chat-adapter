@@ -64,7 +64,7 @@ interface A2AMessagePart {
   }
   data?: Record<string, unknown>
   metadata?: {
-    content_type?: 'thinking' | 'response' | string
+    content_type?: 'thinking' | 'reasoning_step' | 'response' | string
     [key: string]: unknown
   }
 }
@@ -1354,11 +1354,12 @@ export default function FullScreenChat({
                     }
 
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    // THINKING CONTENT → Route to reasoning accordion using content mode
+                    // THINKING/REASONING CONTENT → Route to reasoning accordion using content mode
                     // Uses reasoning.content for continuous token streaming instead of steps[]
                     // Reference: Carbon AI Chat streamReasoningContentFirst() pattern
+                    // Handles both 'thinking' (pre-response) and 'reasoning_step' (post-tool reasoning)
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+                    if ((contentType === 'thinking' || contentType === 'reasoning_step') && part.kind === 'text' && part.text) {
                       // Accumulate thinking tokens into a single string
                       accumulatedThinkingRef.current += part.text
 
@@ -1383,7 +1384,8 @@ export default function FullScreenChat({
                         }
                       }
 
-                      console.log('[Handler] Streamed thinking token:', {
+                      console.log('[Handler] Streamed reasoning token:', {
+                        contentType,
                         tokenLength: part.text.length,
                         totalThinking: accumulatedThinkingRef.current.length
                       })
@@ -1393,8 +1395,9 @@ export default function FullScreenChat({
                     }
 
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    // TOOL CALL → Route to chain_of_thought
-                    // FIXED: Async calls OUTSIDE setState, following Carbon's pattern
+                    // TOOL CALL → Track in chain_of_thought (but don't show yet)
+                    // FIXED: Don't push to Carbon until tool completes - avoids showing
+                    // "How did I get this answer?" accordion too early
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     else if (part.kind === 'data' && part.data?.type === 'tool_call') {
                       const toolData = part.data as { tool_name?: string; args?: any; type: string }
@@ -1415,20 +1418,18 @@ export default function FullScreenChat({
                       // Step 3: Update React state - PURE, no side effects!
                       setChainOfThought([...chainOfThought])
 
-                      // Step 4: Push to Carbon OUTSIDE setState (properly awaited)
-                      if (supportsChunking) {
-                        await pushChainOfThought(responseId, chainOfThought, itemId)
-                      }
+                      // NOTE: Don't push to Carbon yet - wait until tool_result to show accordion
+                      // This prevents "How did I get this answer?" from appearing at the very start
 
-                      console.log('[Handler] Added tool call:', {
+                      console.log('[Handler] Tracked tool call (not yet displayed):', {
                         toolName: toolData.tool_name,
                         totalSteps: chainOfThought.length
                       })
                     }
 
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    // TOOL RESULT → Update chain_of_thought status
-                    // FIXED: Async calls OUTSIDE setState, following Carbon's pattern
+                    // TOOL RESULT → Update chain_of_thought status and show accordion
+                    // This is when we push to Carbon - after tool completes, not when it starts
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     else if (part.kind === 'data' && part.data?.type === 'tool_result') {
                       const resultData = part.data as { tool_name?: string; result_preview?: any; type: string }
@@ -1452,12 +1453,13 @@ export default function FullScreenChat({
                       // Step 3: Update React state - PURE, no side effects!
                       setChainOfThought([...chainOfThought])
 
-                      // Step 4: Push to Carbon OUTSIDE setState (properly awaited)
+                      // Step 4: Push to Carbon - NOW we show the "How did I get this answer?" accordion
+                      // This happens when the tool completes (SUCCESS/ERROR), not when it starts
                       if (supportsChunking) {
                         await pushChainOfThought(responseId, chainOfThought, itemId)
                       }
 
-                      console.log('[Handler] Updated tool result:', { toolName: resultData.tool_name })
+                      console.log('[Handler] Tool completed, showing chain of thought:', { toolName: resultData.tool_name })
                     }
 
                     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
