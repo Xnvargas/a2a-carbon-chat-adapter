@@ -37,7 +37,7 @@ interface EnhancedChatWrapperProps {
 // Extended A2A part with metadata support
 interface A2APartWithMetadata extends A2AMessagePart {
   metadata?: {
-    content_type?: 'thinking' | 'response' | 'status'
+    content_type?: 'thinking' | 'reasoning_step' | 'response' | 'status'
     [key: string]: unknown
   }
 }
@@ -101,10 +101,11 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
     part: A2APartWithMetadata,
     artifactMetadata?: Record<string, unknown>
   ) => {
-    // Check for content_type in part metadata (thinking, response, status)
+    // Check for content_type in part metadata (thinking, reasoning_step, response, status)
     const contentType = part.metadata?.content_type
 
-    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+    // Handle both 'thinking' (pre-response) and 'reasoning_step' (post-tool reasoning)
+    if ((contentType === 'thinking' || contentType === 'reasoning_step') && part.kind === 'text' && part.text) {
       const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
       if (carbonMessage) {
         await addCarbonMessage(carbonMessage)
@@ -118,15 +119,11 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
 
       if (dataType === 'tool_call') {
         const toolName = (part.data as any).tool_name || 'tool'
-        const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
-
-        if (carbonMessage) {
-          const result = await addCarbonMessage(carbonMessage)
-          // Track this tool call so we can update it when the result comes
-          if (result?.id) {
-            activeToolCalls.current.set(toolName, result.id)
-          }
-        }
+        // NOTE: Don't add Carbon message yet - wait until tool_result to show accordion
+        // This prevents "How did I get this answer?" from appearing at the very start
+        // Just track the tool call for later
+        activeToolCalls.current.set(toolName, 'pending')
+        console.log('[EnhancedChatWrapper] Tracked tool call (not yet displayed):', { toolName })
         return
       }
 
@@ -135,17 +132,10 @@ export default function EnhancedChatWrapper({ agentUrl, apiKey }: EnhancedChatWr
         const carbonMessage = translator.current.translateStreamingPart(part as any, artifactMetadata)
 
         if (carbonMessage) {
-          // Check if we have an active tool call to update
-          const existingMessageId = activeToolCalls.current.get(toolName)
-
-          if (existingMessageId) {
-            // Update the existing tool call with the result
-            await updateCarbonMessage(existingMessageId, carbonMessage)
-            activeToolCalls.current.delete(toolName)
-          } else {
-            // No existing tool call, add as new message
-            await addCarbonMessage(carbonMessage)
-          }
+          // Now add the message - this is when the accordion should appear
+          await addCarbonMessage(carbonMessage)
+          activeToolCalls.current.delete(toolName)
+          console.log('[EnhancedChatWrapper] Tool completed, showing chain of thought:', { toolName })
         }
         return
       }

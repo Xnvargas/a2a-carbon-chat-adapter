@@ -224,7 +224,7 @@ export interface LegacyCarbonMessage {
  */
 export interface A2APartWithMetadata extends A2AMessagePart {
   metadata?: {
-    content_type?: 'thinking' | 'response' | 'status' | string
+    content_type?: 'thinking' | 'reasoning_step' | 'response' | 'status' | string
     [key: string]: unknown
   }
 }
@@ -440,8 +440,8 @@ export class A2AToCarbonTranslator {
   translateStreamingPart(part: A2APartWithMetadata, metadata?: Record<string, unknown>): LegacyCarbonMessage | null {
     const contentType = part.metadata?.content_type
 
-    // Handle thinking/reasoning content
-    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+    // Handle thinking/reasoning content (both pre-response and post-tool reasoning)
+    if ((contentType === 'thinking' || contentType === 'reasoning_step') && part.kind === 'text' && part.text) {
       return {
         response_type: 'reasoning_steps',
         reasoning_steps: {
@@ -532,8 +532,8 @@ export class A2AToCarbonTranslator {
   ): CarbonStreamChunk | null {
     const contentType = part.metadata?.content_type
 
-    // Handle thinking/reasoning content
-    if (contentType === 'thinking' && part.kind === 'text' && part.text) {
+    // Handle thinking/reasoning content (both pre-response and post-tool reasoning)
+    if ((contentType === 'thinking' || contentType === 'reasoning_step') && part.kind === 'text' && part.text) {
       return this.translateThinkingPart(part.text, part.metadata)
     }
 
@@ -558,8 +558,8 @@ export class A2AToCarbonTranslator {
 
     // Handle regular text content
     if (part.kind === 'text' && part.text) {
-      // Skip if this is thinking content (already handled above)
-      if (contentType === 'thinking') {
+      // Skip if this is thinking/reasoning content (already handled above)
+      if (contentType === 'thinking' || contentType === 'reasoning_step') {
         return null
       }
       return this.translateTextPart(part.text, artifactMetadata)
