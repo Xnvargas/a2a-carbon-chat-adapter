@@ -220,6 +220,10 @@ export default function ChatPanel({
   const [sidebarOpen, setSidebarOpen] = useState(true) // Start true - sidebar visible by default
   const [sidebarClosing, setSidebarClosing] = useState(false)
 
+  // Track Carbon's view state to control hidden class via React (not DOM manipulation)
+  // This prevents re-renders from overwriting the hidden class
+  const [isViewOpen, setIsViewOpen] = useState(true)
+
   // Ref to access current layout in callbacks (since callbacks can't be updated after mount)
   const layoutRef = useRef(layout)
   useEffect(() => {
@@ -231,6 +235,7 @@ export default function ChatPanel({
     if (layout === 'sidebar') {
       setSidebarOpen(true)
       setSidebarClosing(false)
+      setIsViewOpen(true) // Reset to open when switching to sidebar layout
     }
   }, [layout])
 
@@ -362,26 +367,15 @@ export default function ChatPanel({
    * Handle view state changes for all layouts
    *
    * CRITICAL: When we provide onViewChange, it REPLACES Carbon's default handler.
-   * We MUST toggle 'cds-aichat--hidden' class ourselves to hide/show the chat.
+   * We control visibility via React state (isViewOpen) which is included in elementClassName.
+   * This ensures the hidden class persists across re-renders.
    */
   const onViewChange = useCallback((event: ViewChangeEvent) => {
     const currentLayout = layoutRef.current
 
-    // Find the ChatCustomElement's container div
-    const element = document.querySelector(
-      '.chat-element--fullscreen, .chat-element--sidebar'
-    ) as HTMLElement | null
-
-    // Toggle the hidden class (replicates Carbon's default behavior)
-    if (element) {
-      if (event.newViewState.mainWindow) {
-        // OPENING: Remove hidden class to show chat
-        element.classList.remove('cds-aichat--hidden')
-      } else {
-        // CLOSING/MINIMIZING: Add hidden class to hide chat
-        element.classList.add('cds-aichat--hidden')
-      }
-    }
+    // Update view state via React state (NOT DOM manipulation)
+    // This ensures className stays in sync across re-renders
+    setIsViewOpen(event.newViewState.mainWindow)
 
     // Additional sidebar-specific state for animations
     if (currentLayout === 'sidebar') {
@@ -412,24 +406,28 @@ export default function ChatPanel({
 
   // CRITICAL: This class is applied DIRECTLY to ChatCustomElement
   // Carbon requires explicit viewport dimensions on this element, not percentages
+  // The hidden class is now controlled via React state (isViewOpen) to prevent
+  // re-renders from overwriting DOM-applied classes
   const elementClassName = useMemo(() => {
+    // Include hidden class based on React state, not DOM manipulation
+    const hiddenClass = !isViewOpen ? ' cds-aichat--hidden' : ''
+
     switch (layout) {
       case 'fullscreen':
-        return 'chat-element--fullscreen'
+        return `chat-element--fullscreen${hiddenClass}`
 
       case 'sidebar':
         // Only apply closing class for animation
-        // Don't apply 'closed' class - let Carbon's cds-aichat--hidden handle hiding
-        // (cds-aichat--hidden keeps launcher visible, our --closed class hides it)
+        // Hidden class is appended based on isViewOpen state
         if (sidebarClosing) {
-          return 'chat-element--sidebar chat-element--sidebar-closing'
+          return `chat-element--sidebar chat-element--sidebar-closing${hiddenClass}`
         }
-        return 'chat-element--sidebar'
+        return `chat-element--sidebar${hiddenClass}`
 
       default:
-        return 'chat-element--fullscreen'
+        return `chat-element--fullscreen${hiddenClass}`
     }
-  }, [layout, sidebarClosing])  // Remove sidebarOpen from dependencies
+  }, [layout, sidebarClosing, isViewOpen])
 
   // ==========================================================================
   // APPLY STRINGS TO REDUX STORE
