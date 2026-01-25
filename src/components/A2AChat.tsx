@@ -434,6 +434,7 @@ export function A2AChat({
           {...({
             debug: false,
             aiEnabled: true,
+            injectCarbonTheme: 'white',
           } as any)}
           header={{
             title: agent?.name ?? 'AI Assistant',
@@ -464,19 +465,14 @@ export function A2AChat({
 
   if (ChatCustomElement) {
     return (
-      <div
-        className={`a2a-chat a2a-chat--${layout} ${className}`}
-        style={{
-          height: layout === 'fullscreen' ? '100vh' : undefined,
-          width: layout === 'sidebar' ? '400px' : undefined,
-        }}
-      >
+      <div className={`a2a-chat a2a-chat--${layout} ${className}`}>
         <ChatCustomElement
           {...({
             className: 'a2a-chat__element',
             debug: false,
             aiEnabled: true,
             openChatByDefault: true,
+            injectCarbonTheme: 'white',
           } as any)}
           header={{
             title: agent?.name ?? 'AI Assistant',
