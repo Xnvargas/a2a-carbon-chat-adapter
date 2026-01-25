@@ -1,0 +1,208 @@
+/**
+ * @kuntur/a2a-carbon-chat-adapter base styles
+ *
+ * These are optional utility styles. Carbon AI Chat provides its own styling.
+ * Import with: import '@kuntur/a2a-carbon-chat-adapter/styles';
+ */
+
+/* Chat container layouts */
+.a2a-chat {
+  position: relative;
+}
+
+.a2a-chat--fullscreen {
+  height: 100vh;
+  width: 100%;
+}
+
+.a2a-chat--sidebar {
+  height: 100%;
+  width: 400px;
+  border-left: 1px solid var(--cds-border-subtle, #e0e0e0);
+}
+
+.a2a-chat--float {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+}
+
+/* Loading state */
+.a2a-chat--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.a2a-chat__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--cds-border-subtle, #e0e0e0);
+  border-top-color: var(--cds-interactive, #0f62fe);
+  border-radius: 50%;
+  animation: a2a-spin 1s linear infinite;
+}
+
+@keyframes a2a-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error state */
+.a2a-chat--error {
+  padding: 1rem;
+  color: var(--cds-text-error, #da1e28);
+}
+
+/* Form overlay */
+.a2a-chat__form-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--cds-overlay, rgba(22, 22, 22, 0.5));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* Sources list */
+.a2a-sources-list {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--cds-border-subtle, #e0e0e0);
+}
+
+.a2a-sources-list__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--cds-text-secondary, #525252);
+}
+
+.a2a-sources-list__items {
+  list-style: decimal inside;
+  margin: 0;
+  padding: 0;
+}
+
+.a2a-sources-list__item {
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.a2a-sources-list__item a {
+  color: var(--cds-link-primary, #0f62fe);
+  text-decoration: none;
+}
+
+.a2a-sources-list__item a:hover {
+  text-decoration: underline;
+}
+
+/* Agent switcher */
+.a2a-agent-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.a2a-agent-switcher__label {
+  font-size: 0.875rem;
+  color: var(--cds-text-secondary, #525252);
+}
+
+.a2a-agent-switcher__select {
+  padding: 0.5rem;
+  border: 1px solid var(--cds-border-strong, #8d8d8d);
+  border-radius: 4px;
+  background: var(--cds-field, #f4f4f4);
+  font-size: 0.875rem;
+}
+
+.a2a-agent-switcher--tabs .a2a-agent-switcher__tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--cds-border-subtle, #e0e0e0);
+}
+
+.a2a-agent-switcher__tab {
+  padding: 0.75rem 1rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--cds-text-secondary, #525252);
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.a2a-agent-switcher__tab:hover {
+  color: var(--cds-text-primary, #161616);
+}
+
+.a2a-agent-switcher__tab--active {
+  color: var(--cds-text-primary, #161616);
+  border-bottom-color: var(--cds-interactive, #0f62fe);
+}
+
+.a2a-agent-switcher__icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+/* Cards variant */
+.a2a-agent-switcher--cards .a2a-agent-switcher__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.a2a-agent-switcher__card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--cds-border-subtle, #e0e0e0);
+  border-radius: 8px;
+  background: var(--cds-layer, #ffffff);
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.a2a-agent-switcher__card:hover {
+  border-color: var(--cds-interactive, #0f62fe);
+}
+
+.a2a-agent-switcher__card--active {
+  border-color: var(--cds-interactive, #0f62fe);
+  box-shadow: 0 0 0 1px var(--cds-interactive, #0f62fe);
+}
+
+.a2a-agent-switcher__card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.a2a-agent-switcher__card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.a2a-agent-switcher__card-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cds-text-primary, #161616);
+}
+
+.a2a-agent-switcher__card-description {
+  font-size: 0.75rem;
+  color: var(--cds-text-secondary, #525252);
+}

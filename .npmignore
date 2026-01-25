@@ -1,0 +1,46 @@
+# Source files (dist is published)
+src/
+tsup.config.ts
+tsconfig.json
+.eslintrc*
+vitest.config.*
+
+# Development
+node_modules/
+.git/
+.github/
+examples/
+*.log
+
+# Test files
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+__tests__/
+coverage/
+
+# Misc
+.DS_Store
+.env*
+*.tgz
+
+# Old app files (not part of package)
+app/
+pages/
+public/
+styles/
+components/
+lib/
+supabase/
+k8s/
+next.config.ts
+next-env.d.ts
+middleware.ts
+tailwind.config.*
+postcss.config.*
+proxy.ts
+Dockerfile
+cluster-config.yaml
+pnpm-lock.yaml
+pnpm-workspace.yaml
