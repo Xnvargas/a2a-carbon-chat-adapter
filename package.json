@@ -1,33 +1,94 @@
 {
-  "name": "carbon_agents",
+  "name": "@kuntur/a2a-carbon-chat-adapter",
   "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+  "description": "A2A protocol adapter for Carbon AI Chat - connect any A2A agent to Carbon UI",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./server": {
+      "import": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      },
+      "require": {
+        "types": "./dist/server.d.cts",
+        "default": "./dist/server.cjs"
+      }
+    },
+    "./styles": "./dist/styles/index.css"
   },
-  "dependencies": {
-    "@carbon/ai-chat": "^1.4.3",
-    "@supabase/ssr": "^0.7.0",
-    "@supabase/supabase-js": "^2.84.0",
-    "@xenova/transformers": "^2.17.2",
-    "agentstack-sdk": "^0.4.0",
-    "next": "^16.1.1",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "zod": "^3.23.0"
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@carbon/ai-chat": ">=1.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@carbon/ai-chat": {
+      "optional": false
+    }
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "baseline-browser-mapping": "^2.9.11",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.3",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  }
+    "@carbon/ai-chat": "^1.5.1",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "eslint": "^8.57.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "a2a",
+    "agent-to-agent",
+    "carbon",
+    "ai-chat",
+    "streaming",
+    "llm",
+    "kuntur",
+    "ibm",
+    "watson"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xavierau/a2a-carbon-chat-adapter"
+  },
+  "bugs": {
+    "url": "https://github.com/xavierau/a2a-carbon-chat-adapter/issues"
+  },
+  "homepage": "https://github.com/xavierau/a2a-carbon-chat-adapter#readme",
+  "license": "MIT",
+  "author": "Xavier Au"
 }
