@@ -381,42 +381,13 @@ export function A2AChat({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // CHAT CONFIG
+  // AFTER RENDER HANDLER
   // ---------------------------------------------------------------------------
 
-  const chatConfig = useMemo(
-    () => ({
-      layout: {
-        showCloseAndRestartButton: layout !== 'fullscreen',
-        hasContentMaxWidth: true,
-      },
-      header: {
-        title: agent?.name ?? 'AI Assistant',
-        icons: {
-          agent: agent?.iconUrl ?? '/bot.svg',
-        },
-      },
-      input: {
-        placeholder: 'Type a message...',
-      },
-      messaging: {
-        customSendMessage: async (request: any, options: any, instance: any) => {
-          instanceRef.current = instance;
-          const text = request?.input?.text;
-          if (text) {
-            await handleSendMessage(text);
-          }
-        },
-        skipWelcome: true,
-      },
-      userDefinedResponses: {
-        text_with_citations: renderCustomResponse,
-        sources_list: renderCustomResponse,
-        error: renderCustomResponse,
-      },
-    }),
-    [agent, layout, handleSendMessage, renderCustomResponse]
-  );
+  const handleAfterRender = useCallback((instance: any) => {
+    instanceRef.current = instance;
+    console.log('[A2AChat] Chat instance ready');
+  }, []);
 
   // ---------------------------------------------------------------------------
   // RENDER
@@ -459,7 +430,33 @@ export function A2AChat({
   if (layout === 'float' && ChatContainer) {
     return (
       <div className={`a2a-chat a2a-chat--float ${className}`}>
-        <ChatContainer config={chatConfig} />
+        <ChatContainer
+          {...({
+            debug: false,
+            aiEnabled: true,
+          } as any)}
+          header={{
+            title: agent?.name ?? 'AI Assistant',
+          }}
+          launcher={{
+            isOn: true,
+          }}
+          onAfterRender={handleAfterRender}
+          renderUserDefinedResponse={renderCustomResponse}
+          messaging={{
+            skipWelcome: true,
+            customSendMessage: async (
+              request: any,
+              _options: any,
+              _instance: any
+            ) => {
+              const text = request?.input?.text;
+              if (text) {
+                await handleSendMessage(text);
+              }
+            },
+          } as any}
+        />
         {formOverlay}
       </div>
     );
@@ -474,7 +471,41 @@ export function A2AChat({
           width: layout === 'sidebar' ? '400px' : undefined,
         }}
       >
-        <ChatCustomElement config={chatConfig} />
+        <ChatCustomElement
+          {...({
+            className: 'a2a-chat__element',
+            debug: false,
+            aiEnabled: true,
+            openChatByDefault: true,
+          } as any)}
+          header={{
+            title: agent?.name ?? 'AI Assistant',
+            showMinimize: layout !== 'fullscreen',
+          }}
+          launcher={{
+            isOn: layout === 'float',
+          }}
+          layout={{
+            showFrame: layout === 'float',
+            showCloseAndRestartButton: layout !== 'fullscreen',
+          }}
+          onAfterRender={handleAfterRender}
+          renderUserDefinedResponse={renderCustomResponse}
+          messaging={{
+            skipWelcome: true,
+            messageLoadingIndicatorTimeoutSecs: 0,
+            customSendMessage: async (
+              request: any,
+              _options: any,
+              _instance: any
+            ) => {
+              const text = request?.input?.text;
+              if (text) {
+                await handleSendMessage(text);
+              }
+            },
+          } as any}
+        />
         {formOverlay}
       </div>
     );
