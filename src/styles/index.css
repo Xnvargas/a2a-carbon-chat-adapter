@@ -11,6 +11,8 @@
 
 .a2a-chat {
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .a2a-chat--fullscreen {
@@ -29,6 +31,21 @@
   bottom: 20px;
   right: 20px;
   z-index: 1000;
+}
+
+/* =============================================================================
+   CHAT CUSTOM ELEMENT - REQUIRED FOR SIZING
+
+   ChatCustomElement is a web component that requires external CSS for dimensions.
+   Without these styles, the component renders at 0x0 pixels.
+   ============================================================================= */
+
+.a2a-chat__element {
+  display: block;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 /* =============================================================================
