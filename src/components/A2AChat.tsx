@@ -59,6 +59,7 @@ export function A2AChat({
   apiKey,
 
   // Display options
+  embedded = false,
   layout = 'fullscreen',
   allowLayoutSwitch = false,
   defaultOpen = true,
@@ -143,14 +144,14 @@ export function A2AChat({
   // ---------------------------------------------------------------------------
 
   // Track Carbon's view state - controls whether chat content is visible
+  // In EMBEDDED mode, this is not used (parent controls visibility via mount/unmount)
   const [isViewOpen, setIsViewOpen] = useState(true);
 
-  // External launcher visibility - shown when sidebar is minimized
-  // This is necessary because Carbon's cds-aichat--hidden class shrinks
-  // the entire custom element to 0x0, hiding the built-in launcher
+  // External launcher visibility - shown when sidebar is minimized in STANDALONE mode
+  // In EMBEDDED mode, this is always false (parent provides open button)
   const [showExternalLauncher, setShowExternalLauncher] = useState(false);
 
-  // Track closing animation state
+  // Track closing animation state (STANDALONE mode only)
   const [sidebarClosing, setSidebarClosing] = useState(false);
 
   // Ref to access current layout in callbacks (callbacks capture initial values)
@@ -198,16 +199,31 @@ export function A2AChat({
    * Handle view state changes from Carbon AI Chat
    *
    * CRITICAL: When we provide onViewChange, it REPLACES Carbon's default handler.
-   * We control visibility via React state (isViewOpen) which determines CSS classes.
+   *
+   * EMBEDDED MODE: When minimize is clicked, we signal the parent to close
+   * via onClose callback. Parent handles unmounting - we don't manage view state.
+   *
+   * STANDALONE MODE: We manage our own view state and show external launcher.
    */
   const onViewChange = useCallback(
     (event: { newViewState: { mainWindow: boolean } }) => {
       const currentLayout = layoutRef.current;
 
-      // Update view state via React state (NOT DOM manipulation)
+      // EMBEDDED MODE: Signal parent to close, don't manage internal state
+      if (embedded) {
+        if (!event.newViewState.mainWindow) {
+          // User clicked minimize - tell parent to close the sidebar
+          onClose?.();
+        }
+        // In embedded mode, parent controls visibility via mount/unmount
+        // so we don't update internal view state
+        return;
+      }
+
+      // STANDALONE MODE: Manage our own view state
       setIsViewOpen(event.newViewState.mainWindow);
 
-      // Sidebar-specific handling
+      // Sidebar-specific handling for standalone mode
       if (currentLayout === 'sidebar') {
         if (event.newViewState.mainWindow) {
           // Chat is opening/restoring
@@ -222,7 +238,7 @@ export function A2AChat({
         }
       }
     },
-    [onOpen, onClose]
+    [embedded, onOpen, onClose]
   );
 
   /**
@@ -231,26 +247,34 @@ export function A2AChat({
    */
   const onViewPreChange = useCallback(
     async (event: { newViewState: { mainWindow: boolean } }) => {
-      // Only sidebar needs closing animation
+      // EMBEDDED MODE: Skip animations, parent handles unmount transition
+      if (embedded) {
+        return;
+      }
+
+      // STANDALONE MODE: Only sidebar needs closing animation
       if (layoutRef.current === 'sidebar' && !event.newViewState.mainWindow) {
         setSidebarClosing(true);
         // Wait for CSS animation to complete
         await new Promise((resolve) => setTimeout(resolve, SIDEBAR_ANIMATION_MS));
       }
     },
-    []
+    [embedded]
   );
 
   /**
    * Open the sidebar by triggering Carbon's changeView action
    * Used by the external launcher button when sidebar is minimized
+   * NOT used in embedded mode (parent handles opening via mount)
    */
   const handleOpenSidebar = useCallback(() => {
+    if (embedded) return;
+
     const instance = instanceRef.current;
     if (instance?.actions?.changeView) {
       instance.actions.changeView('MAIN_WINDOW');
     }
-  }, []);
+  }, [embedded]);
 
   // ---------------------------------------------------------------------------
   // MESSAGE HANDLER
@@ -476,7 +500,7 @@ export function A2AChat({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // ELEMENT CLASS NAME (includes view state)
+  // ELEMENT CLASS NAME (includes view state and embedded mode)
   // ---------------------------------------------------------------------------
 
   const elementClassName = useMemo(() => {
@@ -485,20 +509,27 @@ export function A2AChat({
     // Layout-specific classes
     if (layout === 'sidebar') {
       classes.push('a2a-chat__element--sidebar');
-      if (sidebarClosing) {
+
+      if (sidebarClosing && !embedded) {
         classes.push('a2a-chat__element--sidebar-closing');
       }
     } else if (layout === 'fullscreen') {
       classes.push('a2a-chat__element--fullscreen');
     }
 
+    // EMBEDDED MODE: Add embedded class for relative positioning (both sidebar and fullscreen)
+    if (embedded && (layout === 'sidebar' || layout === 'fullscreen')) {
+      classes.push('a2a-chat__element--embedded');
+    }
+
     // Hidden state - controlled by React state, not Carbon's DOM manipulation
-    if (!isViewOpen) {
+    // In EMBEDDED mode, never apply hidden class (parent controls visibility via mount/unmount)
+    if (!isViewOpen && !embedded) {
       classes.push('cds-aichat--hidden');
     }
 
     return classes.join(' ');
-  }, [layout, isViewOpen, sidebarClosing]);
+  }, [layout, embedded, isViewOpen, sidebarClosing]);
 
   // ---------------------------------------------------------------------------
   // RENDER
@@ -587,14 +618,18 @@ export function A2AChat({
           } as any)}
           header={{
             title: agent?.name ?? 'AI Assistant',
-            showMinimize: layout !== 'fullscreen',
+            // EMBEDDED MODE: Always show minimize - it's the close mechanism
+            // STANDALONE: Show for sidebar only (fullscreen doesn't need it)
+            showMinimize: embedded || layout === 'sidebar',
           }}
           launcher={{
-            isOn: layout === 'float',
+            isOn: layout === 'float',  // Only show built-in launcher for float
           }}
           layout={{
             showFrame: layout === 'float',
-            showCloseAndRestartButton: layout !== 'fullscreen',
+            // EMBEDDED MODE: Hide close/restart since parent controls lifecycle
+            // STANDALONE: Show for non-fullscreen layouts
+            showCloseAndRestartButton: !embedded && layout !== 'fullscreen',
           }}
           onViewChange={onViewChange}
           onViewPreChange={onViewPreChange}
@@ -617,7 +652,8 @@ export function A2AChat({
         />
 
         {/* External launcher for sidebar mode - visible when sidebar is minimized */}
-        {layout === 'sidebar' && showExternalLauncher && (
+        {/* NEVER shown in embedded mode - parent app handles opening */}
+        {layout === 'sidebar' && showExternalLauncher && !embedded && (
           <button
             className="a2a-chat__external-launcher"
             onClick={handleOpenSidebar}

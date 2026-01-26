@@ -47,6 +47,24 @@ export interface A2AChatProps {
   // ===========================================================================
 
   /**
+   * Embedded mode - use when A2AChat is inside a parent-controlled container
+   *
+   * Supported layouts: 'sidebar', 'fullscreen' (ignored for 'float')
+   *
+   * When true:
+   * - Parent controls OPENING (via mount/unmount or conditional rendering)
+   * - Carbon's minimize button controls CLOSING (triggers onClose callback)
+   * - No external launcher shown (parent provides open mechanism)
+   * - Uses relative positioning (fills parent container)
+   * - No internal view state management
+   *
+   * Flow: Parent renders → chat visible → user clicks minimize → onClose fires → parent unmounts
+   *
+   * @default false
+   */
+  embedded?: boolean;
+
+  /**
    * Layout mode
    * @default 'fullscreen'
    */
