@@ -532,22 +532,33 @@ export function A2AChat({
     if (embedded) {
       embeddedInitializedRef.current = true;
 
-      // CRITICAL FIX: Remove Carbon's hidden class in embedded mode
-      // Carbon applies cds-aichat--hidden by default, which collapses the element to 0x0.
-      // In embedded mode, the parent controls visibility via mount/unmount, so we must
-      // ensure the chat is visible when mounted.
+      // CRITICAL FIX: In embedded mode, we must ensure the chat is actually open.
+      // Carbon has TWO hiding mechanisms:
+      // 1. Outer element: cds-aichat--hidden class with width/height: 0
+      // 2. Inner content: cds-aichat--hidden class with display: none (in App.scss)
+      //
+      // Even with openChatByDefault: true, Carbon's internal view state may not
+      // properly sync when we provide custom onViewChange handler.
+      //
+      // Solution: Programmatically open the chat via Carbon's changeView action.
       requestAnimationFrame(() => {
+        // Step 1: Remove hidden class from outer element
         const chatElement = instanceRef.current?.hostElement?.parentElement;
         if (chatElement) {
           chatElement.classList.remove('cds-aichat--hidden');
-          console.log('[A2AChat] Removed cds-aichat--hidden class for embedded mode');
         } else {
           // Fallback: Query by class name
           const embeddedElement = document.querySelector('.a2a-chat__element--embedded');
           if (embeddedElement) {
             embeddedElement.classList.remove('cds-aichat--hidden');
-            console.log('[A2AChat] Removed cds-aichat--hidden class via fallback query');
           }
+        }
+
+        // Step 2: Programmatically open the chat to sync Carbon's internal state
+        // This ensures inner content is visible (removes display: none from inner elements)
+        if (instance?.actions?.changeView) {
+          instance.actions.changeView('MAIN_WINDOW');
+          console.log('[A2AChat] Programmatically opened chat view for embedded mode');
         }
       });
 
