@@ -139,6 +139,27 @@ export function A2AChat({
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // ---------------------------------------------------------------------------
+  // SIDEBAR VIEW STATE (for minimize/maximize handling)
+  // ---------------------------------------------------------------------------
+
+  // Track Carbon's view state - controls whether chat content is visible
+  const [isViewOpen, setIsViewOpen] = useState(true);
+
+  // External launcher visibility - shown when sidebar is minimized
+  // This is necessary because Carbon's cds-aichat--hidden class shrinks
+  // the entire custom element to 0x0, hiding the built-in launcher
+  const [showExternalLauncher, setShowExternalLauncher] = useState(false);
+
+  // Track closing animation state
+  const [sidebarClosing, setSidebarClosing] = useState(false);
+
+  // Ref to access current layout in callbacks (callbacks capture initial values)
+  const layoutRef = useRef(layout);
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
+
+  // ---------------------------------------------------------------------------
   // LOAD CARBON COMPONENTS
   // ---------------------------------------------------------------------------
 
@@ -165,6 +186,71 @@ export function A2AChat({
   useEffect(() => {
     onConnectionChange?.(connectionState);
   }, [connectionState, onConnectionChange]);
+
+  // ---------------------------------------------------------------------------
+  // VIEW CHANGE HANDLERS (for sidebar minimize/maximize)
+  // ---------------------------------------------------------------------------
+
+  // Animation duration - should match CSS transition
+  const SIDEBAR_ANIMATION_MS = 250;
+
+  /**
+   * Handle view state changes from Carbon AI Chat
+   *
+   * CRITICAL: When we provide onViewChange, it REPLACES Carbon's default handler.
+   * We control visibility via React state (isViewOpen) which determines CSS classes.
+   */
+  const onViewChange = useCallback(
+    (event: { newViewState: { mainWindow: boolean } }) => {
+      const currentLayout = layoutRef.current;
+
+      // Update view state via React state (NOT DOM manipulation)
+      setIsViewOpen(event.newViewState.mainWindow);
+
+      // Sidebar-specific handling
+      if (currentLayout === 'sidebar') {
+        if (event.newViewState.mainWindow) {
+          // Chat is opening/restoring
+          setShowExternalLauncher(false);
+          setSidebarClosing(false);
+          onOpen?.();
+        } else {
+          // Chat is minimizing
+          setSidebarClosing(false);
+          setShowExternalLauncher(true);
+          onClose?.();
+        }
+      }
+    },
+    [onOpen, onClose]
+  );
+
+  /**
+   * Handle pre-view-change for animations
+   * Allows us to run closing animation before view actually changes
+   */
+  const onViewPreChange = useCallback(
+    async (event: { newViewState: { mainWindow: boolean } }) => {
+      // Only sidebar needs closing animation
+      if (layoutRef.current === 'sidebar' && !event.newViewState.mainWindow) {
+        setSidebarClosing(true);
+        // Wait for CSS animation to complete
+        await new Promise((resolve) => setTimeout(resolve, SIDEBAR_ANIMATION_MS));
+      }
+    },
+    []
+  );
+
+  /**
+   * Open the sidebar by triggering Carbon's changeView action
+   * Used by the external launcher button when sidebar is minimized
+   */
+  const handleOpenSidebar = useCallback(() => {
+    const instance = instanceRef.current;
+    if (instance?.actions?.changeView) {
+      instance.actions.changeView('MAIN_WINDOW');
+    }
+  }, []);
 
   // ---------------------------------------------------------------------------
   // MESSAGE HANDLER
@@ -390,6 +476,31 @@ export function A2AChat({
   }, []);
 
   // ---------------------------------------------------------------------------
+  // ELEMENT CLASS NAME (includes view state)
+  // ---------------------------------------------------------------------------
+
+  const elementClassName = useMemo(() => {
+    const classes = ['a2a-chat__element'];
+
+    // Layout-specific classes
+    if (layout === 'sidebar') {
+      classes.push('a2a-chat__element--sidebar');
+      if (sidebarClosing) {
+        classes.push('a2a-chat__element--sidebar-closing');
+      }
+    } else if (layout === 'fullscreen') {
+      classes.push('a2a-chat__element--fullscreen');
+    }
+
+    // Hidden state - controlled by React state, not Carbon's DOM manipulation
+    if (!isViewOpen) {
+      classes.push('cds-aichat--hidden');
+    }
+
+    return classes.join(' ');
+  }, [layout, isViewOpen, sidebarClosing]);
+
+  // ---------------------------------------------------------------------------
   // RENDER
   // ---------------------------------------------------------------------------
 
@@ -468,7 +579,7 @@ export function A2AChat({
       <div className={`a2a-chat a2a-chat--${layout} ${className}`}>
         <ChatCustomElement
           {...({
-            className: 'a2a-chat__element',
+            className: elementClassName,
             debug: false,
             aiEnabled: true,
             openChatByDefault: true,
@@ -485,6 +596,8 @@ export function A2AChat({
             showFrame: layout === 'float',
             showCloseAndRestartButton: layout !== 'fullscreen',
           }}
+          onViewChange={onViewChange}
+          onViewPreChange={onViewPreChange}
           onAfterRender={handleAfterRender}
           renderUserDefinedResponse={renderCustomResponse}
           messaging={{
@@ -502,6 +615,28 @@ export function A2AChat({
             },
           } as any}
         />
+
+        {/* External launcher for sidebar mode - visible when sidebar is minimized */}
+        {layout === 'sidebar' && showExternalLauncher && (
+          <button
+            className="a2a-chat__external-launcher"
+            onClick={handleOpenSidebar}
+            aria-label="Open chat"
+            title="Open chat"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 32 32"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M17.74 30L16 29l4-7h6a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h9v2H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4h20a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4h-4.84Z" />
+              <path d="M8 10h16v2H8zM8 16h10v2H8z" />
+            </svg>
+          </button>
+        )}
+
         {formOverlay}
       </div>
     );

@@ -399,3 +399,116 @@
 .a2a-form__button--primary:hover {
   background: var(--cds-interactive-hover, #0353e9);
 }
+
+/* =============================================================================
+   SIDEBAR LAYOUT STYLES
+   ============================================================================= */
+
+:root {
+  --a2a-chat-sidebar-width: 380px;
+  --a2a-chat-transition-duration: 250ms;
+  --a2a-chat-z-index: 1000;
+}
+
+/* Sidebar element positioning */
+.a2a-chat__element--sidebar {
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+  transition: transform var(--a2a-chat-transition-duration) ease-in-out;
+  transform: translateX(0);
+}
+
+/* Sidebar closing animation */
+.a2a-chat__element--sidebar-closing {
+  transform: translateX(100%) !important;
+}
+
+/* When sidebar is minimized via Carbon's hidden class */
+.a2a-chat__element--sidebar.cds-aichat--hidden {
+  transform: translateX(100%) !important;
+  /* Do NOT set width/height to 0 - parent container handles visibility */
+}
+
+/* Fullscreen element */
+.a2a-chat__element--fullscreen {
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* When fullscreen is minimized */
+.a2a-chat__element--fullscreen.cds-aichat--hidden {
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* =============================================================================
+   EXTERNAL LAUNCHER (shown when sidebar is minimized)
+   ============================================================================= */
+
+.a2a-chat__external-launcher {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--cds-interactive-01, #0f62fe);
+  color: white;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: calc(var(--a2a-chat-z-index) + 1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.a2a-chat__external-launcher:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.a2a-chat__external-launcher:focus {
+  outline: 2px solid var(--cds-focus, #0f62fe);
+  outline-offset: 2px;
+}
+
+.a2a-chat__external-launcher:active {
+  transform: scale(0.95);
+}
+
+/* RTL support */
+[dir="rtl"] .a2a-chat__external-launcher {
+  right: auto;
+  left: 20px;
+}
+
+/* =============================================================================
+   RESPONSIVE
+   ============================================================================= */
+
+@media (max-width: 768px) {
+  .a2a-chat__external-launcher {
+    bottom: 80px; /* Move up on mobile to avoid overlapping other controls */
+  }
+}
+
+/* =============================================================================
+   DARK MODE
+   ============================================================================= */
+
+@media (prefers-color-scheme: dark) {
+  .a2a-chat__external-launcher {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+
+  .a2a-chat__external-launcher:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+  }
+}

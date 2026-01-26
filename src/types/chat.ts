@@ -172,3 +172,24 @@ export interface A2AChatProps {
    */
   renderUserDefined?: (data: unknown, messageItem: unknown) => ReactNode;
 }
+
+// =============================================================================
+// CARBON VIEW STATE TYPES
+// =============================================================================
+
+/**
+ * Carbon AI Chat view state structure
+ */
+export interface CarbonViewState {
+  mainWindow: boolean;
+  launcher?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Carbon AI Chat view change event
+ */
+export interface ViewChangeEvent {
+  newViewState: CarbonViewState;
+  oldViewState?: CarbonViewState;
+}
