@@ -664,6 +664,7 @@ export function A2AChat({
           {...({
             debug: false,
             aiEnabled: true,
+            openChatByDefault: false,
             injectCarbonTheme: 'white',
           } as any)}
           header={{
