@@ -33,26 +33,31 @@
   z-index: 1000;
 
   /*
-   * Establish a containing block for fixed-position descendants.
-   * Carbon AI Chat's ChatShell uses position:fixed with z-index:99999
-   * and near-full-viewport dimensions (AppShellStyles.scss, _chat-theme.scss).
-   * Without this transform, those elements escape the float wrapper and
-   * cover the entire viewport, blocking all pointer events.
-   * Per CSS Transforms spec §13, translateZ(0) creates a containing block.
-   */
-  transform: translateZ(0);
-
-  /*
    * Prevent invisible Carbon internals from capturing pointer events.
-   * The shadow DOM contains 100%x100% wrapper divs and a cds-layer
-   * element that can intercept events even when the chat is closed.
+   *
+   * Carbon's ChatShell (inside the shadow DOM) uses position:fixed with
+   * z-index:99999 and near-viewport dimensions. Even when the chat is
+   * closed (display:none on ChatShell), the parent wrapper chain
+   * (cds-aichat--container--render, cds-layer, both at 100%×100%)
+   * could intercept events during state transitions.
+   *
+   * pointer-events:none on this wrapper disables hit-testing for the
+   * entire subtree. Re-enabled on direct children (the shadow host)
+   * so the launcher button and open chat window remain interactive.
+   *
+   * NOTE: Do NOT use transform, contain:paint, will-change:transform,
+   * filter, or perspective on this element. These create containing
+   * blocks for fixed descendants, which changes ChatShell's computed
+   * dimensions, triggering Carbon's ResizeObserver → applyConfigChanges
+   * → setState infinite loop (Maximum update depth exceeded).
    */
   pointer-events: none;
 }
 
 /*
- * Re-enable pointer events on the shadow host so the launcher
- * button and open chat window remain interactive.
+ * Re-enable pointer events on the shadow host (cds-aichat-react).
+ * This allows the launcher button and chat window to receive clicks
+ * while keeping the wrapper itself transparent to pointer events.
  */
 .a2a-chat--float > * {
   pointer-events: auto;
