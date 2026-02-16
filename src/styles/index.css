@@ -31,6 +31,31 @@
   bottom: 20px;
   right: 20px;
   z-index: 1000;
+
+  /*
+   * Establish a containing block for fixed-position descendants.
+   * Carbon AI Chat's ChatShell uses position:fixed with z-index:99999
+   * and near-full-viewport dimensions (AppShellStyles.scss, _chat-theme.scss).
+   * Without this transform, those elements escape the float wrapper and
+   * cover the entire viewport, blocking all pointer events.
+   * Per CSS Transforms spec §13, translateZ(0) creates a containing block.
+   */
+  transform: translateZ(0);
+
+  /*
+   * Prevent invisible Carbon internals from capturing pointer events.
+   * The shadow DOM contains 100%x100% wrapper divs and a cds-layer
+   * element that can intercept events even when the chat is closed.
+   */
+  pointer-events: none;
+}
+
+/*
+ * Re-enable pointer events on the shadow host so the launcher
+ * button and open chat window remain interactive.
+ */
+.a2a-chat--float > * {
+  pointer-events: auto;
 }
 
 /* =============================================================================
